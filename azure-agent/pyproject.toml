@@ -1,0 +1,17 @@
+[project]
+name = "calcslive-agent"
+version = "0.1.0"
+description = "CalcsLive Agent for Excel - Microsoft AI Hackathon 2026"
+requires-python = ">=3.10"
+dependencies = [
+    "agent-framework[azure-ai]",
+    "azure-identity",
+    "httpx",
+    "python-dotenv",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+]
