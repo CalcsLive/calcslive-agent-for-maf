@@ -1,0 +1,23 @@
+[project]
+name = "calcslive-excel-bridge"
+version = "0.1.0"
+description = "HTTP bridge for Excel COM automation with CalcsLive integration"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0",
+    "pywin32>=306",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "httpx>=0.25.0",  # For testing FastAPI
+]
+
+[project.scripts]
+excel-bridge = "main:run"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
