@@ -1,10 +1,10 @@
 # CalcsLive Agent for Excel
 
-AI Agent that orchestrates unit-aware calculations between Excel and CalcsLive using Azure AI Foundry and the OpenAI Assistants API.
+AI Agent that orchestrates unit-aware calculations between Excel and CalcsLive using Azure AI Foundry and OpenAI Chat Completions tool calling.
 
 ## Prerequisites
 
-1. **Azure AI Foundry** project with a model deployment (e.g., `grok-3-mini`)
+1. **Azure AI Foundry** project with a model deployment (e.g., `grok-3-mini`) OR serverless inference endpoint
 2. **Azure CLI** logged in (`az login`)
 3. **Excel Bridge** running on localhost:8001
 4. **Excel** open with a PQ table spreadsheet
@@ -35,6 +35,15 @@ Create a `.env` file (or copy from `.env.example`):
 AZURE_AI_PROJECT_ENDPOINT=https://your-resource.services.ai.azure.com/api/projects/your-project
 AZURE_AI_MODEL_DEPLOYMENT_NAME=grok-3-mini
 EXCEL_BRIDGE_URL=http://localhost:8001
+
+# Optional serverless inference mode (uses these instead of project endpoint)
+# AZURE_AI_INFERENCE_ENDPOINT=https://your-endpoint.models.ai.azure.com/chat/completions
+# AZURE_AI_INFERENCE_KEY=your_key
+# AZURE_AI_INFERENCE_MODEL=grok-3-mini
+
+# Optional CalcsLive authentication
+# CALCSLIVE_API_URL=https://calcslive.com/api/v1
+# CALCSLIVE_API_KEY=your_api_key
 ```
 
 ## Usage
@@ -82,7 +91,7 @@ User Request
      ▼
 ┌─────────────────────────────────────┐
 │  CalcsLive Agent (Azure AI Foundry) │
-│  - Uses OpenAI Assistants API       │
+│  - Uses Chat Completions API        │
 │  - Model: grok-3-mini               │
 │  - Function calling for tools       │
 └─────────────┬───────────────────────┘
@@ -104,7 +113,7 @@ User Request
 
 ## Technical Details
 
-- **SDK**: Azure AI Projects SDK (`azure-ai-projects`)
+- **SDK**: Azure AI Projects SDK (`azure-ai-projects`) or serverless OpenAI-compatible endpoint
 - **Auth**: DefaultAzureCredential (Azure CLI, Managed Identity, etc.)
-- **API**: OpenAI Assistants API via `project_client.get_openai_client()`
+- **API**: OpenAI Chat Completions with tool calling
 - **Model**: Any model deployed in Azure AI Foundry (grok-3-mini, gpt-4o-mini, etc.)

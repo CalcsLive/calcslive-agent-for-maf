@@ -13,6 +13,7 @@ Uses Azure AI Projects SDK with OpenAI Assistants API.
 import os
 import json
 from typing import Any
+from urllib.parse import urlparse, parse_qs
 import httpx
 from dotenv import load_dotenv
 
@@ -21,7 +22,87 @@ load_dotenv()
 
 # Configuration
 EXCEL_BRIDGE_URL = os.getenv("EXCEL_BRIDGE_URL", "http://localhost:8001")
-CALCSLIVE_API_URL = "https://calcslive.com/api/v1"
+CALCSLIVE_API_URL = os.getenv("CALCSLIVE_API_URL", "https://calcslive.com/api/v1")
+CALCSLIVE_API_KEY = os.getenv("CALCSLIVE_API_KEY", "")
+
+
+def _normalize_inference_base_url(endpoint: str) -> str:
+    """Normalize Azure serverless inference endpoint to OpenAI SDK base_url."""
+    base_url = endpoint.strip().rstrip("/")
+    if base_url.endswith("/chat/completions"):
+        base_url = base_url[:-len("/chat/completions")]
+    if not base_url.endswith("/v1"):
+        if base_url.endswith("/v1/"):
+            base_url = base_url[:-1]
+        else:
+            base_url = f"{base_url}/v1"
+    return base_url
+
+
+def _parse_azure_openai_deployment_endpoint(endpoint: str) -> dict:
+    """Parse Azure OpenAI deployment chat-completions endpoint.
+
+    Expected example:
+    https://<resource>.cognitiveservices.azure.com/openai/deployments/<deployment>/chat/completions?api-version=2024-05-01-preview
+    """
+    parsed = urlparse(endpoint.strip())
+    path_parts = [p for p in parsed.path.split("/") if p]
+
+    deployment_name = None
+    if "deployments" in path_parts:
+        idx = path_parts.index("deployments")
+        if idx + 1 < len(path_parts):
+            deployment_name = path_parts[idx + 1]
+
+    query = parse_qs(parsed.query)
+    api_version = query.get("api-version", [None])[0]
+
+    return {
+        "azure_endpoint": f"{parsed.scheme}://{parsed.netloc}",
+        "deployment": deployment_name,
+        "api_version": api_version,
+    }
+
+
+def _post_json(url: str, payload: dict, timeout: float, headers: dict | None = None) -> dict:
+    """POST JSON and return standardized dict response."""
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(url, json=payload, headers=headers)
+
+        if response.status_code >= 400:
+            try:
+                error_body = response.json()
+            except Exception:
+                error_body = response.text
+            return {
+                "success": False,
+                "statusCode": response.status_code,
+                "error": "HTTP request failed",
+                "details": error_body,
+            }
+
+        return {"success": True, "data": response.json()}
+
+    except httpx.ConnectError:
+        return {"success": False, "error": "Connection failed"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def _extract_calc_outputs(calc_result: dict) -> dict:
+    """Extract outputs map from normalized CalcsLive response."""
+    if not calc_result.get("success"):
+        return {}
+    data = calc_result.get("data")
+    if not isinstance(data, dict):
+        return {}
+    if isinstance(data.get("outputs"), dict):
+        return data["outputs"]
+    nested = data.get("data")
+    if isinstance(nested, dict) and isinstance(nested.get("outputs"), dict):
+        return nested["outputs"]
+    return {}
 
 
 # ============ Excel Bridge Functions ============
@@ -31,10 +112,10 @@ def read_excel_pq_table() -> dict:
     try:
         with httpx.Client(timeout=10.0) as client:
             response = client.get(f"{EXCEL_BRIDGE_URL}/excel/pq-for-calcslive")
-            response.raise_for_status()
-            return response.json()
+        response.raise_for_status()
+        return response.json()
     except httpx.ConnectError:
-        return {"success": False, "error": "Cannot connect to Excel Bridge at localhost:8001"}
+        return {"success": False, "error": f"Cannot connect to Excel Bridge at {EXCEL_BRIDGE_URL}"}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -47,10 +128,10 @@ def write_excel_results(results: dict) -> dict:
                 f"{EXCEL_BRIDGE_URL}/excel/write-pq-results",
                 json={"results": results}
             )
-            response.raise_for_status()
-            return response.json()
+        response.raise_for_status()
+        return response.json()
     except httpx.ConnectError:
-        return {"success": False, "error": "Cannot connect to Excel Bridge"}
+        return {"success": False, "error": f"Cannot connect to Excel Bridge at {EXCEL_BRIDGE_URL}"}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -63,7 +144,7 @@ def get_excel_health() -> dict:
             response.raise_for_status()
             return response.json()
     except httpx.ConnectError:
-        return {"success": False, "error": "Cannot connect to Excel Bridge at localhost:8001"}
+        return {"success": False, "error": f"Cannot connect to Excel Bridge at {EXCEL_BRIDGE_URL}"}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -74,30 +155,37 @@ def calculate_with_calcslive(pqs: list, inputs: dict, outputs: dict = None) -> d
     """
     Perform a unit-aware calculation using CalcsLive run_script API.
     """
-    try:
-        payload = {"pqs": pqs}
-        if inputs:
-            payload["inputs"] = inputs
-        if outputs:
-            payload["outputs"] = outputs
+    payload = {"pqs": pqs}
+    if inputs:
+        payload["inputs"] = inputs
+    if outputs:
+        payload["outputs"] = outputs
 
-        with httpx.Client(timeout=30.0) as client:
-            response = client.post(
-                f"{CALCSLIVE_API_URL}/run-script",
-                json=payload,
-                headers={"Content-Type": "application/json"}
-            )
+    headers = {"Content-Type": "application/json"}
+    if CALCSLIVE_API_KEY:
+        headers["Authorization"] = f"Bearer {CALCSLIVE_API_KEY}"
 
-            if response.status_code == 401:
-                return {"success": False, "error": "CalcsLive API requires authentication"}
+    result = _post_json(
+        f"{CALCSLIVE_API_URL}/run-script",
+        payload,
+        timeout=30.0,
+        headers=headers,
+    )
 
-            response.raise_for_status()
-            return response.json()
+    if not result.get("success"):
+        if result.get("statusCode") == 401:
+            return {
+                "success": False,
+                "error": "CalcsLive API requires authentication",
+                "details": result.get("details"),
+            }
+        return result
 
-    except httpx.ConnectError:
-        return {"success": False, "error": "Cannot connect to CalcsLive API"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    data = result.get("data")
+    if isinstance(data, dict) and data.get("success") is False:
+        return data
+
+    return {"success": True, "data": data}
 
 
 # ============ Agent using Azure AI with Chat Completions API ============
@@ -112,6 +200,7 @@ def run_agent_with_azure():
     # Fall back to project SDK
     project_endpoint = os.getenv("AZURE_AI_PROJECT_ENDPOINT")
     model_deployment = os.getenv("AZURE_AI_MODEL_DEPLOYMENT_NAME", "grok-3-mini")
+    inference_model = os.getenv("AZURE_AI_INFERENCE_MODEL", model_deployment)
 
     print("=" * 60)
     print("CalcsLive Agent for Excel")
@@ -121,21 +210,37 @@ def run_agent_with_azure():
     openai_client = None
 
     if inference_endpoint and inference_key:
-        # Use direct inference endpoint (serverless deployment)
+        # Support two endpoint styles:
+        # 1) Serverless/OpenAI-compatible models endpoint
+        # 2) Azure OpenAI deployment chat-completions endpoint
         print(f"Mode: Serverless Inference")
         print(f"Endpoint: {inference_endpoint}")
 
-        from openai import OpenAI
-        # For serverless, the base_url should be the endpoint without /chat/completions
-        base_url = inference_endpoint.replace("/chat/completions", "").replace("/v1/", "/v1")
-        if not base_url.endswith("/v1"):
-            base_url = base_url.rstrip("/") + "/v1"
+        if "/openai/deployments/" in inference_endpoint:
+            from openai import AzureOpenAI
 
-        openai_client = OpenAI(
-            base_url=base_url,
-            api_key=inference_key
-        )
-        model_deployment = "grok-3-mini"  # Model name for serverless
+            parsed = _parse_azure_openai_deployment_endpoint(inference_endpoint)
+            api_version = os.getenv("AZURE_AI_INFERENCE_API_VERSION") or parsed.get("api_version") or "2024-05-01-preview"
+            deployment_from_url = parsed.get("deployment")
+
+            if deployment_from_url:
+                model_deployment = deployment_from_url
+
+            openai_client = AzureOpenAI(
+                api_key=inference_key,
+                azure_endpoint=parsed["azure_endpoint"],
+                api_version=api_version,
+            )
+        else:
+            from openai import OpenAI
+
+            # For serverless, the base_url should be endpoint root ending with /v1
+            base_url = _normalize_inference_base_url(inference_endpoint)
+            openai_client = OpenAI(
+                base_url=base_url,
+                api_key=inference_key,
+            )
+            model_deployment = inference_model
 
     elif project_endpoint:
         # Use Azure AI Projects SDK
@@ -211,6 +316,10 @@ def run_agent_with_azure():
                         "inputs": {
                             "type": "object",
                             "description": "Dict of input values, e.g., {\"D\": {\"value\": 2, \"unit\": \"in\"}}"
+                        },
+                        "outputs": {
+                            "type": "object",
+                            "description": "Optional requested outputs with unit preferences, e.g., {\"V\": {\"unit\": \"L\"}}"
                         }
                     },
                     "required": ["pqs", "inputs"]
@@ -258,7 +367,8 @@ Always explain what you're doing."""
         elif func_name == "calculate_with_calcslive":
             return calculate_with_calcslive(
                 func_args.get("pqs", []),
-                func_args.get("inputs", {})
+                func_args.get("inputs", {}),
+                func_args.get("outputs", {}),
             )
         else:
             return {"error": f"Unknown function: {func_name}"}
@@ -281,7 +391,13 @@ Always explain what you're doing."""
             messages.append({"role": "user", "content": user_input})
 
             # Loop to handle tool calls
+            tool_round = 0
             while True:
+                tool_round += 1
+                if tool_round > 8:
+                    print("\nAgent: Stopped after too many tool rounds for one prompt.\n")
+                    break
+
                 try:
                     response = openai_client.chat.completions.create(
                         model=model_deployment,
@@ -318,7 +434,10 @@ Always explain what you're doing."""
                     # Execute each tool call
                     for tool_call in assistant_message.tool_calls:
                         func_name = tool_call.function.name
-                        func_args = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
+                        try:
+                            func_args = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
+                        except json.JSONDecodeError:
+                            func_args = {}
 
                         result = execute_tool(func_name, func_args)
 
@@ -381,7 +500,8 @@ def run_demo_local():
     print("3. Calculating with CalcsLive...")
     calc_result = calculate_with_calcslive(
         pq_data.get("pqs", []),
-        pq_data.get("inputs", {})
+        pq_data.get("inputs", {}),
+        pq_data.get("outputs", {}),
     )
 
     if not calc_result.get("success"):
@@ -391,9 +511,9 @@ def run_demo_local():
         print("   Using demo values instead...")
         results = {"V": 0.0965, "m": 212.75}
     else:
-        outputs = calc_result.get("data", {}).get("outputs", {})
+        outputs = _extract_calc_outputs(calc_result)
         results = {sym: info.get("value") for sym, info in outputs.items()}
-        print(f"   Results: {results}")
+        print(f"   Results: {results if results else 'No outputs returned'}")
 
     print()
 

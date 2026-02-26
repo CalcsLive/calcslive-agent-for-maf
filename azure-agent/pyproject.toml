@@ -5,8 +5,10 @@ description = "CalcsLive Agent for Excel - Microsoft AI Hackathon 2026"
 requires-python = ">=3.10"
 dependencies = [
     "agent-framework[azure-ai]",
+    "azure-ai-projects",
     "azure-identity",
     "httpx",
+    "openai>=1.0.0",
     "python-dotenv",
     "pydantic>=2.0.0",
 ]
