@@ -164,3 +164,16 @@ Interpretation:
 2. Confirm ODR test mode/allowlist guidance for custom servers (Windows docs or supported host app path).
 3. Run tool invocation through an ODR-supported client context.
 4. Re-run end-to-end validation and capture screenshots/logs.
+
+---
+
+## Retry Confirmation (same day)
+
+Additional attempts were performed after adding static responses and MCP wrapper HTTP modes:
+
+- Added static `initialize` and `tools/list` responses to `excel-mcp/manifest.json`
+- Re-registered server successfully
+- `odr mcp run --proxy calcslive-excel-mcp-0.1.0` still denied (`AccessStatus=DeniedBySystem`)
+- Attempted remote registration against local streamable HTTP (`/mcp`) and SSE (`/sse`) endpoints; ODR add failed to connect
+
+Conclusion remains unchanged: registration works, invocation is blocked by ODR access policy/client context.

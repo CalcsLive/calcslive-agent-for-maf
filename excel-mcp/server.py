@@ -8,6 +8,7 @@ to the existing FastAPI Excel bridge at http://127.0.0.1:8001.
 from __future__ import annotations
 
 import os
+import argparse
 from typing import Any
 
 import httpx
@@ -73,5 +74,18 @@ def excel_write_pq_results(results: dict[str, Any]) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    # ODR typically runs MCP servers over stdio.
-    mcp.run(transport="stdio")
+    parser = argparse.ArgumentParser(description="CalcsLive Excel MCP wrapper")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "sse", "streamable-http"],
+        default=os.getenv("EXCEL_MCP_TRANSPORT", "stdio"),
+        help="MCP transport mode",
+    )
+    parser.add_argument(
+        "--mount-path",
+        default=os.getenv("EXCEL_MCP_MOUNT_PATH", None),
+        help="Optional mount path for HTTP transports",
+    )
+    args = parser.parse_args()
+
+    mcp.run(transport=args.transport, mount_path=args.mount_path)
