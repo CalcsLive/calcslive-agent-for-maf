@@ -14,7 +14,7 @@
 
 | Requirement | How We Meet It |
 |-------------|----------------|
-| **Microsoft Foundry / Agent Framework / Azure MCP** | ⚠️ In progress: wire explicit MAF/Azure MCP artifacts in hosted path |
+| **Microsoft Foundry / Agent Framework / Azure MCP** | ⚠️ In progress: wire explicit MAF artifacts and ODR local-tool evidence |
 | **Azure Deployment** | ⚠️ In progress: local-first validated, hosted entrypoint pending |
 | **GitHub Public Repo** | ✅ New repo created after Feb 10, 2026 |
 | **Demo Video (2 min)** | ⚠️ Script outlined, recording pending |
@@ -26,11 +26,24 @@
 
 | Requirement | Evidence Artifact | Owner | Status |
 |-------------|-------------------|-------|--------|
-| Agent Framework / Azure MCP | `azure-agent/` hosted entrypoint + screenshot of Azure config + demo narration callout | e3d | ⚠️ |
+| Agent Framework / Azure MCP | `azure-agent/` MAF artifacts + ODR local-tool registration proof + demo narration callout | e3d | ⚠️ |
 | Azure deployment | Deployed endpoint URL + portal screenshot + successful invocation log | e3d | ⚠️ |
 | Public repo | GitHub repo link with commit history after Feb 10 | e3d | ✅ |
 | 2-min demo video | `demo/demo_script.md` + final MP4 + timestamps for key steps | e3d | ⚠️ |
 | Architecture diagram | `docs/architecture.png` matching shipped implementation | e3d | ⚠️ |
+
+---
+
+## Environment Update (Current)
+
+- OS: Windows 11 Home 25H2 (Insider Dev Channel)
+- ODR: v0.1.1 available locally
+- Azure-backed agent path: working (`azure-agent/agent.py`)
+- Excel bridge path: working (`excel-bridge/` on `localhost:8001`)
+
+**Execution modes going forward**
+- **Mode A (MVP primary)**: local orchestration + Azure inference + local Excel bridge
+- **Mode B (ODR proof path)**: register Excel bridge as ODR local tool and verify one end-to-end workflow
 
 ---
 
@@ -124,6 +137,10 @@
 **Decision Gate**:
 - If hosted relay is not production-safe by deadline, ship local bridge + Azure inference path as MVP
 
+**ODR update**:
+- Since ODR v0.1.1 is available, add ODR local-tool verification as a near-term objective
+- ODR is now part of evidence collection, not only future architecture
+
 ---
 
 ## User Flow (Demo Scenario)
@@ -212,10 +229,18 @@ Standard Excel ignores units - formulas don't know that "2 in" and "3 cm" are di
 - [ ] Implement deterministic orchestrator path: read Excel → call CalcsLive → write results
 - [ ] Deploy hosted entrypoint (Functions or equivalent)
 
+**ODR sub-track (parallel to Phase 3)**
+- [ ] Confirm ODR runtime health/version and capture evidence
+- [ ] Register Excel bridge as local tool in ODR
+- [ ] Verify discovery of local Excel tool from agent runtime
+- [ ] Execute one ODR-routed flow: read PQ → calculate → write results
+- [ ] Capture logs/screenshots for compliance evidence
+
 **Acceptance criteria**
 - [ ] Single prompt executes full workflow end-to-end
 - [ ] Output cells (`V`, `m`) update correctly for at least 3 reruns
 - [ ] End-to-end runtime under 10 seconds on demo sheet
+- [ ] One successful ODR local-tool run is recorded with evidence
 
 ### Phase 4: Stretch - Article Creator Agent (Days 13-17) ~15 hours
 - [ ] Natural language → PQ structure reasoning
@@ -246,6 +271,7 @@ Standard Excel ignores units - formulas don't know that "2 in" and "3 cm" are di
 | Date | Milestone | Output |
 |------|-----------|--------|
 | Mar 1 | MVP E2E stabilized | Prompt → Excel outputs written reliably |
+| Mar 3 | ODR verification checkpoint | ODR local-tool registration + one verified run |
 | Mar 5 | Hosted path decision locked | Hosted entrypoint working OR documented local-first rationale |
 | Mar 8 | Demo freeze | No new features; only reliability and docs |
 | Mar 10 | Video draft complete | First cut 2-min demo with timestamps |
@@ -263,6 +289,11 @@ Standard Excel ignores units - formulas don't know that "2 in" and "3 cm" are di
 3. Show outputs written in Excel
 4. Change one input and rerun
 
+**ODR proof insert (15-25 sec, if stable)**
+1. Show ODR runtime/version on machine
+2. Show Excel bridge local-tool registration/discovery
+3. Run one prompt using the same workflow through registered local tool
+
 **Fallback path (if API or hosted path fails)**
 1. Use `python azure-agent/agent.py --demo`
 2. Show deterministic bridge read/write and explain Azure path status
@@ -274,7 +305,8 @@ Standard Excel ignores units - formulas don't know that "2 in" and "3 cm" are di
 
 | Risk | Impact | Mitigation | Fallback |
 |------|--------|------------|----------|
-| Azure ↔ local connectivity | High | Decide topology early; test daily | Local bridge + Azure inference local-run demo |
+| ODR integration churn (new runtime) | Medium | Keep ODR test scope minimal and scripted | Use non-ODR MVP path in final demo |
+| Azure ↔ local connectivity | High | Keep local-first MVP path; avoid relay dependency | Local bridge + Azure inference local-run demo |
 | CalcsLive auth / API availability | High | Pre-validate keys and sample payloads | Demo mode with deterministic outputs |
 | Excel COM instability | Medium | Keep workbook/sheet naming fixed; add health checks | Restart bridge + use backup workbook |
 | Last-minute scope creep | Medium | MVP freeze date and strict backlog | Cut stretch features |
@@ -285,7 +317,7 @@ Standard Excel ignores units - formulas don't know that "2 in" and "3 cm" are di
 
 - **Real problem**: Excel formulas ignore units; engineering teams make silent conversion mistakes.
 - **Innovation**: CalcsLive article as reusable source of truth, consumed by an AI agent and desktop tools.
-- **Execution**: Working bridge + agent orchestration with measurable end-to-end value in a familiar spreadsheet UX.
+- **Execution**: Working bridge + agent orchestration with measurable end-to-end value in a familiar spreadsheet UX, plus ODR local-tool proof.
 
 ---
 

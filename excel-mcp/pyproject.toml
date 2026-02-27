@@ -1,0 +1,9 @@
+[project]
+name = "calcslive-excel-mcp"
+version = "0.1.0"
+description = "MCP wrapper over local CalcsLive Excel bridge"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0.0",
+    "httpx>=0.25.0",
+]

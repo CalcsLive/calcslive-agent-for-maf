@@ -1,0 +1,87 @@
+{
+  "manifest_version": "0.3",
+  "name": "calcslive-excel-mcp",
+  "display_name": "CalcsLive Excel MCP",
+  "version": "0.1.0",
+  "description": "MCP connector that exposes local Excel bridge tools for CalcsLive workflows.",
+  "author": {
+    "name": "e3d"
+  },
+  "server": {
+    "type": "binary",
+    "entry_point": "py",
+    "mcp_config": {
+      "command": "py",
+      "args": [
+        "server.py"
+      ]
+    }
+  },
+  "_meta": {
+    "com.microsoft.windows": {
+      "static_responses": {
+        "initialize": {
+          "protocolVersion": "2025-06-18",
+          "capabilities": {
+            "tools": {
+              "listChanged": true
+            }
+          },
+          "serverInfo": {
+            "name": "calcslive-excel-mcp",
+            "version": "0.1.0"
+          }
+        },
+        "tools/list": {
+          "tools": [
+            {
+              "name": "excel_health",
+              "description": "Check whether the local Excel bridge can access an open Excel workbook.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "annotations": {
+                "destructiveHint": false,
+                "readOnlyHint": true
+              }
+            },
+            {
+              "name": "excel_get_pq_for_calcslive",
+              "description": "Read PQ inputs/outputs from Excel in CalcsLive-ready structure.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "annotations": {
+                "destructiveHint": false,
+                "readOnlyHint": true
+              }
+            },
+            {
+              "name": "excel_write_pq_results",
+              "description": "Write calculation results back to Excel by symbol.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "results": {
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "results"
+                ]
+              },
+              "annotations": {
+                "destructiveHint": true,
+                "readOnlyHint": false
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "tools_generated": false,
+  "license": "MIT"
+}
