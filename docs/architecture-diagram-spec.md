@@ -23,53 +23,51 @@ Use 3 horizontal swimlanes with labels:
 
 ### Swimlane 1: User + Orchestration (Cloud)
 
-- Box A1: `User`
-- Box A2: `MAF Orchestrator Agent`
-- Box A3: `Calc Agent`
-- Box A4: `Excel Agent`
-- Box A5 (optional stretch): `CAD Agent`
+- Box A1: `User (Streamlit Web Dashboard)`
+- Box A2: `Azure Agent (MAF Orchestrator)`
+- Box A3: `Calc Agent logic`
+- Box A4: `Excel Agent logic`
 
-### Swimlane 2: MCP Tool Layer
+### Swimlane 2: MCP Tool & API Layer
 
-- Box B1: `CalcsLive MCP`
-- Box B2: `Excel MCP (Windows Local Host/ODR)`
-- Box B3 (optional stretch): `FreeCAD MCP (Windows Local Host/ODR)`
+- Box B1: `CalcsLive API`
+- Box B2: `Local Excel Bridge (REST localhost:8001)`
+- Box B3: `Excel MCP Wrapper (Registered to Windows ODR)`
+- *Note:* Add a red dashed boundary or lock icon between B2 and B3 labeled: `ODR execution blocked by Secure Boot TestMode policy in Dev Preview`
 
 ### Swimlane 3: Execution Targets (Local + Backend)
 
 - Box C1: `CalcsLive Backend\n(Unit Engine + Article Store)`
-- Box C2: `Excel Desktop`
-- Box C3 (optional stretch): `FreeCAD Desktop`
+- Box C2: `Excel 2016 Pro Desktop`
 
 ## Required Arrows
 
 ### Control/orchestration arrows (solid)
 
-- `User -> MAF Orchestrator Agent`
-- `MAF Orchestrator Agent -> Calc Agent`
-- `MAF Orchestrator Agent -> Excel Agent`
-- `MAF Orchestrator Agent -> CAD Agent` (if shown)
+- `User (Streamlit Web Dashboard) <-> Azure Agent (MAF Orchestrator)`
+- `Azure Agent (MAF Orchestrator) -> Calc Agent logic`
+- `Azure Agent (MAF Orchestrator) -> Excel Agent logic`
 
 ### Tool invocation arrows (solid)
 
-- `Calc Agent -> CalcsLive MCP`
-- `Excel Agent -> Excel MCP (Windows Local Host/ODR)`
-- `CAD Agent -> FreeCAD MCP (Windows Local Host/ODR)` (if shown)
+- `Calc Agent logic -> CalcsLive API`
+- `Excel Agent logic -> Local Excel Bridge (REST localhost:8001)`
+- *(Dashed line indicating intended future path)* `Excel Agent logic -.-> Excel MCP Wrapper (Registered to Windows ODR)`
 
 ### Execution arrows (solid)
 
-- `CalcsLive MCP -> CalcsLive Backend`
-- `Excel MCP (Windows Local Host/ODR) -> Excel Desktop`
-- `FreeCAD MCP (Windows Local Host/ODR) -> FreeCAD Desktop` (if shown)
+- `CalcsLive API -> CalcsLive Backend`
+- `Local Excel Bridge (REST localhost:8001) -> Excel 2016 Pro Desktop`
+- `Excel MCP Wrapper (Registered to Windows ODR) -> Local Excel Bridge (REST localhost:8001)`
 
 ### Feedback arrows (dashed back)
 
-- `CalcsLive Backend -> CalcsLive MCP`
-- `Excel Desktop -> Excel MCP (Windows Local Host/ODR)`
-- `Excel MCP (Windows Local Host/ODR) -> Excel Agent`
-- `CalcsLive MCP -> Calc Agent`
-- `Calc Agent -> MAF Orchestrator Agent`
-- `Excel Agent -> MAF Orchestrator Agent`
+- `CalcsLive Backend -> CalcsLive API`
+- `Excel 2016 Pro Desktop -> Local Excel Bridge (REST localhost:8001)`
+- `Local Excel Bridge (REST localhost:8001) -> Excel Agent logic`
+- `CalcsLive API -> Calc Agent logic`
+- `Calc Agent logic -> Azure Agent (MAF Orchestrator)`
+- `Excel Agent logic -> Azure Agent (MAF Orchestrator)`
 
 ## Side Annotations (small callouts)
 
@@ -77,18 +75,18 @@ Add 3 callouts on the right:
 
 1. `CalcsLive Article = Source of Truth`
 2. `Unit-aware compute centralized in CalcsLive`
-3. `Desktop access via local Windows host (ODR)`
+3. `Streamlit acts as cross-application System Utility Interface`
 
 ## Numbered Workflow Overlay (small badges 1-6)
 
 Place badges on arrows:
 
-1. User asks to calculate
-2. Excel Agent reads PQ table
-3. Calc Agent calls CalcsLive MCP
+1. User interacts with Streamlit to ask for calculation
+2. Excel Agent reads PQ table from local REST bridge
+3. Calc Agent sends data to CalcsLive API
 4. CalcsLive returns unit-aware outputs
-5. Excel Agent writes results to Excel
-6. Orchestrator returns final response
+5. Excel Agent writes results to Excel via local REST bridge
+6. Orchestrator returns final text to Streamlit UI
 
 ## Color Key
 
