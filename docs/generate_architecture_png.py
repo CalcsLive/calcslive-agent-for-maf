@@ -1,6 +1,5 @@
 from PIL import Image, ImageDraw, ImageFont
 
-
 W, H = 1920, 1080
 BG = (248, 250, 252)
 
@@ -12,14 +11,13 @@ COLORS = {
     "text": (15, 23, 42),
     "arrow": (30, 41, 59),
     "dash": (71, 85, 105),
+    "red_dash": (220, 38, 38),
     "badge": (59, 130, 246),
     "badge_text": (255, 255, 255),
 }
 
-
 def rect(draw, box, fill, outline=(100, 116, 139), width=2, r=14):
     draw.rounded_rectangle(box, radius=r, fill=fill, outline=outline, width=width)
-
 
 def center_text(draw, box, text, font, fill=COLORS["text"]):
     x1, y1, x2, y2 = box
@@ -28,8 +26,7 @@ def center_text(draw, box, text, font, fill=COLORS["text"]):
     cy = (y1 + y2 - th) // 2
     draw.multiline_text((cx, cy), text, font=font, fill=fill, align="center")
 
-
-def arrow(draw, p1, p2, color=COLORS["arrow"], width=3, dashed=False):
+def arrow(draw, p1, p2, color=COLORS["arrow"], width=3, dashed=False, bi_directional=False):
     x1, y1 = p1
     x2, y2 = p2
     if dashed:
@@ -46,17 +43,20 @@ def arrow(draw, p1, p2, color=COLORS["arrow"], width=3, dashed=False):
     else:
         draw.line((x1, y1, x2, y2), fill=color, width=width)
 
-    # Arrow head
-    vx = x2 - x1
-    vy = y2 - y1
-    mag = (vx * vx + vy * vy) ** 0.5 or 1
-    ux, uy = vx / mag, vy / mag
-    px, py = -uy, ux
-    size = 12
-    p_left = (x2 - ux * size - px * size * 0.6, y2 - uy * size - py * size * 0.6)
-    p_right = (x2 - ux * size + px * size * 0.6, y2 - uy * size + py * size * 0.6)
-    draw.polygon([p_left, p_right, (x2, y2)], fill=color)
+    def draw_head(px1, py1, px2, py2):
+        vx = px2 - px1
+        vy = py2 - py1
+        mag = (vx * vx + vy * vy) ** 0.5 or 1
+        ux, uy = vx / mag, vy / mag
+        px, py = -uy, ux
+        size = 12
+        p_left = (px2 - ux * size - px * size * 0.6, py2 - uy * size - py * size * 0.6)
+        p_right = (px2 - ux * size + px * size * 0.6, py2 - uy * size + py * size * 0.6)
+        draw.polygon([p_left, p_right, (px2, py2)], fill=color)
 
+    draw_head(x1, y1, x2, y2)
+    if bi_directional:
+        draw_head(x2, y2, x1, y1)
 
 def badge(draw, x, y, label, font):
     r = 14
@@ -64,22 +64,28 @@ def badge(draw, x, y, label, font):
     tw, th = draw.textbbox((0, 0), label, font=font)[2:]
     draw.text((x - tw // 2, y - th // 2 - 1), label, font=font, fill=COLORS["badge_text"])
 
-
 def main():
     img = Image.new("RGB", (W, H), BG)
     draw = ImageDraw.Draw(img)
 
-    title_font = ImageFont.load_default()
-    box_font = ImageFont.load_default()
-    lane_font = ImageFont.load_default()
+    try:
+        title_font = ImageFont.truetype("arial.ttf", 24)
+        box_font = ImageFont.truetype("arial.ttf", 18)
+        lane_font = ImageFont.truetype("arial.ttf", 20)
+        warning_font = ImageFont.truetype("arial.ttf", 16)
+    except IOError:
+        title_font = ImageFont.load_default()
+        box_font = ImageFont.load_default()
+        lane_font = ImageFont.load_default()
+        warning_font = ImageFont.load_default()
 
     # Title
-    draw.text((30, 20), "CalcsLive Reference Architecture (MAF + MCP + Windows Local Host/ODR)", fill=COLORS["text"], font=title_font)
+    draw.text((30, 20), "CalcsLive Reference Architecture (Streamlit MVP & ODR Fallback)", fill=COLORS["text"], font=title_font)
 
     # Swimlanes
     lanes = [
-        (20, 80, 1900, 340, "User + Orchestration (Cloud)"),
-        (20, 360, 1900, 640, "MCP Tool Layer"),
+        (20, 80, 1900, 340, "User + Orchestration (Cloud/Local Web)"),
+        (20, 360, 1900, 640, "MCP Tool & API Layer"),
         (20, 660, 1900, 1040, "Execution Targets (Local + Backend)"),
     ]
     for x1, y1, x2, y2, label in lanes:
@@ -87,99 +93,98 @@ def main():
         draw.text((x1 + 12, y1 + 10), label, fill=COLORS["text"], font=lane_font)
 
     # Cloud boxes
-    user = (80, 170, 260, 250)
-    orch = (340, 150, 700, 270)
-    calc = (820, 130, 1040, 230)
-    excel_agent = (820, 245, 1040, 345)
-    cad_agent = (820, 20 + 340, 1040, 120 + 340)  # near bottom edge of lane
+    user = (60, 160, 300, 260)
+    orch = (380, 160, 660, 260)
+    calc_agent = (740, 120, 1060, 200)
+    excel_agent = (740, 240, 1060, 320)
 
-    for b in [user, orch, calc, excel_agent, cad_agent]:
+    for b in [user, orch, calc_agent, excel_agent]:
         rect(draw, b, COLORS["cloud_box"])
 
-    center_text(draw, user, "User", box_font)
-    center_text(draw, orch, "MAF Orchestrator\nAgent", box_font)
-    center_text(draw, calc, "Calc Agent", box_font)
-    center_text(draw, excel_agent, "Excel Agent", box_font)
-    center_text(draw, cad_agent, "CAD Agent\n(optional)", box_font)
+    center_text(draw, user, "User\n(Streamlit Web Dashboard)", box_font)
+    center_text(draw, orch, "Azure Agent\n(MAF Orchestrator)", box_font)
+    center_text(draw, calc_agent, "Calc Agent logic", box_font)
+    center_text(draw, excel_agent, "Excel Agent logic", box_font)
 
-    # MCP boxes
-    cl_mcp = (760, 430, 1080, 530)
-    ex_mcp = (1130, 430, 1510, 530)
-    cad_mcp = (1560, 430, 1880, 530)
+    # Control Arrows
+    arrow(draw, (300, 210), (380, 210), bi_directional=True)
+    arrow(draw, (660, 210), (740, 160))
+    arrow(draw, (660, 210), (740, 280))
 
-    for b in [cl_mcp, ex_mcp, cad_mcp]:
+    # Tool / API boxes
+    cl_api = (740, 440, 1060, 520)
+    ex_bridge = (1140, 440, 1460, 520)
+    ex_mcp = (1560, 440, 1860, 520)
+
+    for b in [cl_api, ex_bridge, ex_mcp]:
         rect(draw, b, COLORS["mcp_box"])
 
-    center_text(draw, cl_mcp, "CalcsLive MCP", box_font)
-    center_text(draw, ex_mcp, "Excel MCP\n(Windows Local Host/ODR)", box_font)
-    center_text(draw, cad_mcp, "FreeCAD MCP\n(Windows Local Host/ODR)\n(optional)", box_font)
+    center_text(draw, cl_api, "CalcsLive API", box_font)
+    center_text(draw, ex_bridge, "Local Excel Bridge\n(REST localhost:8001)", box_font)
+    center_text(draw, ex_mcp, "Excel MCP Wrapper\n(Registered to Windows ODR)", box_font)
 
-    # Execution boxes
-    cl_backend = (700, 780, 1140, 920)
-    excel_desktop = (1180, 780, 1500, 920)
-    freecad_desktop = (1540, 780, 1860, 920)
+    # ODR Warning Line between ex_bridge and ex_mcp
+    arrow(draw, (1480, 380), (1480, 620), color=COLORS["red_dash"], dashed=True, width=4)
+    draw.text((1490, 400), "ODR execution blocked by Secure Boot", fill=COLORS["red_dash"], font=warning_font)
+    draw.text((1490, 420), "TestMode policy in Dev Preview", fill=COLORS["red_dash"], font=warning_font)
 
-    for b in [cl_backend, excel_desktop, freecad_desktop]:
+    # Tool Arrows
+    arrow(draw, (900, 200), (900, 440))
+    arrow(draw, (1060, 280), (1200, 440))
+    arrow(draw, (1060, 280), (1600, 440), dashed=True) # Intended path
+
+    # Execution targets
+    cl_backend = (740, 780, 1060, 880)
+    ex_desktop = (1140, 780, 1460, 880)
+
+    for b in [cl_backend, ex_desktop]:
         rect(draw, b, COLORS["exec_box"])
 
     center_text(draw, cl_backend, "CalcsLive Backend\n(Unit Engine + Article Store)", box_font)
-    center_text(draw, excel_desktop, "Excel Desktop", box_font)
-    center_text(draw, freecad_desktop, "FreeCAD Desktop\n(optional)", box_font)
-
-    # Solid control arrows
-    arrow(draw, (260, 210), (340, 210))
-    arrow(draw, (700, 190), (820, 180))
-    arrow(draw, (700, 230), (820, 295))
-    arrow(draw, (700, 255), (820, 390))
-
-    # Tool invocation arrows
-    arrow(draw, (930, 230), (920, 430))
-    arrow(draw, (1040, 295), (1130, 480))
-    arrow(draw, (1040, 390), (1560, 480))
+    center_text(draw, ex_desktop, "Excel 2016 Pro Desktop", box_font)
 
     # Execution arrows
-    arrow(draw, (920, 530), (920, 780))
-    arrow(draw, (1320, 530), (1320, 780))
-    arrow(draw, (1710, 530), (1710, 780))
+    arrow(draw, (900, 520), (900, 780))
+    arrow(draw, (1300, 520), (1300, 780))
+    arrow(draw, (1650, 520), (1400, 780))
 
-    # Dashed return arrows
-    arrow(draw, (980, 780), (980, 530), dashed=True, color=COLORS["dash"], width=2)
-    arrow(draw, (1380, 780), (1380, 530), dashed=True, color=COLORS["dash"], width=2)
-    arrow(draw, (1130, 500), (1040, 320), dashed=True, color=COLORS["dash"], width=2)
-    arrow(draw, (900, 430), (900, 230), dashed=True, color=COLORS["dash"], width=2)
-    arrow(draw, (830, 300), (700, 240), dashed=True, color=COLORS["dash"], width=2)
-    arrow(draw, (840, 180), (700, 175), dashed=True, color=COLORS["dash"], width=2)
+    # Dashed returns
+    arrow(draw, (950, 780), (950, 520), dashed=True, color=COLORS["dash"], width=2)
+    arrow(draw, (1350, 780), (1350, 520), dashed=True, color=COLORS["dash"], width=2)
+    arrow(draw, (1200, 440), (1050, 310), dashed=True, color=COLORS["dash"], width=2)
+    arrow(draw, (950, 440), (950, 200), dashed=True, color=COLORS["dash"], width=2)
+    arrow(draw, (740, 180), (660, 220), dashed=True, color=COLORS["dash"], width=2)
+    arrow(draw, (740, 300), (660, 240), dashed=True, color=COLORS["dash"], width=2)
 
-    # Numbered workflow badges
-    badge_font = ImageFont.load_default()
-    badge(draw, 300, 195, "1", badge_font)
-    badge(draw, 1085, 360, "2", badge_font)
-    badge(draw, 925, 330, "3", badge_font)
-    badge(draw, 960, 650, "4", badge_font)
-    badge(draw, 1360, 650, "5", badge_font)
-    badge(draw, 760, 210, "6", badge_font)
+    # Workflow Badges
+    badge_font = title_font
+    badge(draw, 340, 180, "1", badge_font)
+    badge(draw, 1100, 340, "2", badge_font)
+    badge(draw, 870, 340, "3", badge_font)
+    badge(draw, 980, 650, "4", badge_font)
+    badge(draw, 1270, 650, "5", badge_font)
+    badge(draw, 680, 280, "6", badge_font)
 
-    # Right-side callouts
-    callout_x = 20
+    # Side Annotations
+    callout_x = 30
     callout_y = 930
-    draw.text((callout_x, callout_y), "Key callouts:", fill=COLORS["text"], font=box_font)
-    draw.text((callout_x, callout_y + 20), "- CalcsLive Article = Source of Truth", fill=COLORS["text"], font=box_font)
-    draw.text((callout_x, callout_y + 40), "- Unit-aware compute centralized in CalcsLive", fill=COLORS["text"], font=box_font)
-    draw.text((callout_x, callout_y + 60), "- Desktop access via Windows local host (ODR)", fill=COLORS["text"], font=box_font)
+    draw.text((callout_x, callout_y), "Key Concepts:", fill=COLORS["text"], font=title_font)
+    draw.text((callout_x, callout_y + 30), "1. CalcsLive Article = Source of Truth", fill=COLORS["text"], font=lane_font)
+    draw.text((callout_x, callout_y + 55), "2. Unit-aware compute centralized in CalcsLive", fill=COLORS["text"], font=lane_font)
+    draw.text((callout_x, callout_y + 80), "3. Streamlit acts as cross-application System Utility Interface", fill=COLORS["text"], font=lane_font)
 
     # Legend
-    draw.text((1460, 950), "Legend:", fill=COLORS["text"], font=box_font)
-    draw.rectangle((1460, 970, 1500, 990), fill=COLORS["cloud_box"], outline=(100, 116, 139))
-    draw.text((1510, 972), "Cloud agents", fill=COLORS["text"], font=box_font)
-    draw.rectangle((1460, 995, 1500, 1015), fill=COLORS["mcp_box"], outline=(100, 116, 139))
-    draw.text((1510, 997), "MCP tools", fill=COLORS["text"], font=box_font)
-    draw.rectangle((1460, 1020, 1500, 1040), fill=COLORS["exec_box"], outline=(100, 116, 139))
-    draw.text((1510, 1022), "Execution targets", fill=COLORS["text"], font=box_font)
+    draw.text((1460, 950), "Legend:", fill=COLORS["text"], font=lane_font)
+    draw.rectangle((1460, 980, 1500, 1000), fill=COLORS["cloud_box"], outline=(100, 116, 139))
+    draw.text((1510, 980), "Agent logic", fill=COLORS["text"], font=lane_font)
+    draw.rectangle((1460, 1010, 1500, 1030), fill=COLORS["mcp_box"], outline=(100, 116, 139))
+    draw.text((1510, 1010), "Tool / API Layer", fill=COLORS["text"], font=lane_font)
+    draw.rectangle((1460, 1040, 1500, 1060), fill=COLORS["exec_box"], outline=(100, 116, 139))
+    draw.text((1510, 1040), "Execution targets", fill=COLORS["text"], font=lane_font)
 
     out = "docs/architecture.png"
     img.save(out)
     print(f"Wrote {out}")
-
 
 if __name__ == "__main__":
     main()
