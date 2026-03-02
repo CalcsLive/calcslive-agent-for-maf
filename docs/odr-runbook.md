@@ -103,3 +103,59 @@ And in agent chat:
 Use stable MVP path:
 - local Excel bridge + Azure-backed agent (`azure-agent/agent.py`)
 - keep ODR as bonus evidence with runtime/version + roadmap statement
+
+## 9) Happy Path Closed-Loop (Current MVP)
+
+Use this when validating the core user scenario end-to-end.
+
+### Prerequisites
+
+1. Start Excel and open workbook (e.g., `ExampleCalc-01.xlsx`).
+2. Start bridge:
+
+```powershell
+python excel-bridge/main.py
+```
+
+3. Start Streamlit app:
+
+```powershell
+streamlit run azure-agent/app.py
+```
+
+### Scenario A: Load + Prefill
+
+Prompt in UI:
+
+```text
+please load calculation 3MLCVKCU3-2K8 to Excel sheet Sheet2 at B9
+```
+
+Expected:
+- Metadata rows appear above table (including ArticleID and editor URL).
+- PQ table appears at requested anchor.
+- Initial output values are prefilled.
+
+### Scenario B: Manual Recalculate
+
+1. Edit one input value and/or unit in Excel.
+2. Prompt:
+
+```text
+please recalculate
+```
+
+Expected:
+- Agent reads current table state.
+- CalcsLive recalculates outputs.
+- Output value cells update in place.
+
+### Scenario C: Live Mode Auto-Recalc
+
+1. Enable **Live Mode** in sidebar.
+2. Change input value/unit or output unit in Excel.
+3. Wait poll + debounce interval.
+
+Expected:
+- Live Mode status changes to auto-recalc success.
+- Outputs update without manual prompt.

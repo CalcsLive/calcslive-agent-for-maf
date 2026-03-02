@@ -23,6 +23,45 @@ def _cell_address(row: int, col: int) -> str:
     return f"{_col_letter(col)}{row}"
 
 
+def _write_article_metadata_block(
+    ws: Any,
+    start_row: int,
+    start_col: int,
+    article_metadata: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Write article metadata rows above the PQ table and return metadata row info."""
+    if start_row < 4:
+        raise ValueError("start_row must be >= 4 when write_metadata=True")
+
+    # Keep ArticleID two rows above data start (header is one row above data start).
+    article_row = start_row - 2
+    url_row = max(1, article_row - 1)
+    creator_row = max(1, article_row - 3)
+    date_row = max(1, article_row - 2)
+    title_row = max(1, article_row - 4)
+
+    placement = [
+        (title_row, "Title", article_metadata.get("title", "")),
+        (article_row, "ArticleID", article_metadata.get("articleId", "")),
+        (url_row, "CalcsLive URL", article_metadata.get("url", "")),
+        (creator_row, "Creator", article_metadata.get("creator", "")),
+        (date_row, "Date", article_metadata.get("date", "")),
+    ]
+
+    for row, label, value in placement:
+        ws.Cells(row, start_col).Value = label
+        ws.Cells(row, start_col + 1).Value = value
+
+    metadata_rows = [row for row, _, _ in placement]
+    return {
+        "metadataStartRow": min(metadata_rows),
+        "metadataEndRow": max(metadata_rows),
+        "metadataLabelCol": start_col,
+        "metadataValueCol": start_col + 1,
+        "articleIdRow": article_row,
+    }
+
+
 def get_health() -> Dict[str, Any]:
     """
     Check Excel connection health.
@@ -349,32 +388,47 @@ def find_pq_table(sheet_name: Optional[str] = None) -> Dict[str, Any]:
                 "error": "ArticleID not found. Add 'ArticleID' label with the article ID in the next cell."
             }
 
-        # Calculate PQ table position relative to ArticleID
-        # Headers 1 row below ArticleID, data 2 rows below
+        # Search for header row below ArticleID label. This is robust to optional
+        # metadata rows between ArticleID and the table header.
         label_row = article_info["labelRow"]
         label_col = article_info["labelCol"]
-        header_row = label_row + 1
-        data_start_row = label_row + 2
-
-        # Find headers in the header row (starting from label_col)
+        header_row = None
         headers = {}
-        for col in range(label_col, label_col + 10):
-            cell_value = ws.Cells(header_row, col).Value
-            if cell_value is None:
-                continue
+        for candidate_row in range(label_row + 1, label_row + 13):
+            candidate_headers = {}
+            for col in range(label_col, label_col + 10):
+                cell_value = ws.Cells(candidate_row, col).Value
+                if cell_value is None:
+                    continue
 
-            cell_str = str(cell_value).strip().lower()
+                cell_str = str(cell_value).strip().lower()
 
-            if 'desc' in cell_str or cell_str == 'pq':
-                headers['description'] = col
-            elif cell_str in ['sym', 'symbol', 'symbols']:
-                headers['symbol'] = col
-            elif cell_str in ['expr', 'expression', 'formula']:
-                headers['expression'] = col
-            elif cell_str in ['val', 'value', 'values']:
-                headers['value'] = col
-            elif cell_str in ['unit', 'units']:
-                headers['unit'] = col
+                if 'desc' in cell_str or cell_str == 'pq':
+                    candidate_headers['description'] = col
+                elif cell_str in ['sym', 'symbol', 'symbols']:
+                    candidate_headers['symbol'] = col
+                elif cell_str in ['expr', 'expression', 'formula']:
+                    candidate_headers['expression'] = col
+                elif cell_str in ['val', 'value', 'values']:
+                    candidate_headers['value'] = col
+                elif cell_str in ['unit', 'units']:
+                    candidate_headers['unit'] = col
+
+            required = ['symbol', 'value', 'unit']
+            if all(key in candidate_headers for key in required):
+                header_row = candidate_row
+                headers = candidate_headers
+                break
+
+        if header_row is None:
+            return {
+                "success": False,
+                "error": "Could not locate PQ header row below ArticleID",
+                "articleId": article_info["articleId"],
+                "articleLabelRow": label_row,
+            }
+
+        data_start_row = header_row + 1
 
         # Verify we found required columns
         required = ['symbol', 'value', 'unit']
@@ -718,6 +772,8 @@ def setup_pq_table_from_article(pqs: List[Dict[str, Any]],
                                  start_row: int = 2,
                                  start_col: int = 1,
                                  include_headers: bool = True,
+                                 write_metadata: bool = False,
+                                 article_metadata: Optional[Dict[str, Any]] = None,
                                  sheet_name: Optional[str] = None) -> Dict[str, Any]:
     """
     Setup a PQ table in Excel from a CalcsLive article structure.
@@ -751,23 +807,71 @@ def setup_pq_table_from_article(pqs: List[Dict[str, Any]],
             ws = wb.ActiveSheet
 
         current_row = start_row
+        metadata_info = None
+
+        if write_metadata:
+            metadata_info = _write_article_metadata_block(
+                ws,
+                start_row,
+                start_col,
+                article_metadata or {},
+            )
 
         # Write headers if requested
         if include_headers:
             headers = ["Description", "Symbol", "Expression", "Value", "Unit"]
             for i, header in enumerate(headers):
-                ws.Cells(start_row - 1, start_col + i).Value = header
-
+                cell = ws.Cells(start_row - 1, start_col + i)
+                cell.Value = header
+                # Light Gray background for headers, Bold text
+                cell.Interior.Color = 14277081  # RGB(217, 217, 217)
+                cell.Font.Bold = True
+                
         # Write PQ data
         for pq in pqs:
             ws.Cells(current_row, start_col).Value = pq.get("description", "")
             ws.Cells(current_row, start_col + 1).Value = pq.get("sym", "")
-            ws.Cells(current_row, start_col + 2).Value = pq.get("expression", "")
-            # Leave value empty for inputs (user will fill in)
+            
+            expression_col = start_col + 2
+            value_col = start_col + 3
+            
+            ws.Cells(current_row, expression_col).Value = pq.get("expression", "")
             if pq.get("value") is not None:
-                ws.Cells(current_row, start_col + 3).Value = pq.get("value")
+                ws.Cells(current_row, value_col).Value = pq.get("value")
+            else:
+                ws.Cells(current_row, value_col).Value = None
             ws.Cells(current_row, start_col + 4).Value = pq.get("unit", "")
+            
+            # Formatting logic: 
+            # If there's an expression, it's an output -> Green
+            # If no expression, it's an input -> Yellow
+            is_input = not bool(pq.get("expression"))
+            
+            # We highlight Symbol, Expression, and Value cells
+            sym_cell = ws.Cells(current_row, start_col + 1)
+            expr_cell = ws.Cells(current_row, expression_col)
+            val_cell = ws.Cells(current_row, value_col)
+            
+            if is_input:
+                color = 65535  # RGB(255, 255, 0) - Yellow
+            else:
+                color = 65280  # RGB(0, 255, 0) - Green
+                # For outputs, make sure the expression cell gets the color
+                expr_cell.Interior.Color = color
+            
+            sym_cell.Interior.Color = color
+            
             current_row += 1
+            
+        # Draw borders around the whole range
+        header_r = start_row - 1 if include_headers else start_row
+        table_range = ws.Range(_cell_address(header_r, start_col) + ":" + _cell_address(current_row - 1, start_col + 4))
+        
+        # xlEdgeLeft = 7, xlEdgeTop = 8, xlEdgeBottom = 9, xlEdgeRight = 10, xlInsideVertical = 11, xlInsideHorizontal = 12
+        # xlContinuous = 1, xlThin = 2
+        for edge in [7, 8, 9, 10, 11, 12]:
+            table_range.Borders(edge).LineStyle = 1
+            table_range.Borders(edge).Weight = 2
 
         return {
             "success": True,
@@ -775,7 +879,8 @@ def setup_pq_table_from_article(pqs: List[Dict[str, Any]],
             "headerRow": start_row - 1 if include_headers else None,
             "dataStartRow": start_row,
             "dataEndRow": current_row - 1,
-            "pqCount": len(pqs)
+            "pqCount": len(pqs),
+            "metadata": metadata_info,
         }
 
     except Exception as e:

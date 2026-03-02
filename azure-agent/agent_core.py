@@ -1,5 +1,6 @@
 import os
 import json
+import re
 from typing import Any, Dict, List, Tuple
 from urllib.parse import urlparse, parse_qs
 import httpx
@@ -12,6 +13,70 @@ load_dotenv()
 EXCEL_BRIDGE_URL = os.getenv("EXCEL_BRIDGE_URL", "http://localhost:8001")
 CALCSLIVE_API_URL = os.getenv("CALCSLIVE_API_URL", "https://calcslive.com/api/v1")
 CALCSLIVE_API_KEY = os.getenv("CALCSLIVE_API_KEY", "")
+CALCSLIVE_DEBUG = os.getenv("CALCSLIVE_DEBUG", "1").strip().lower() in {"1", "true", "yes", "on"}
+
+# Remember last loaded table anchor so recalc targets the same block.
+LAST_TABLE_CONTEXT: dict[str, Any] = {}
+
+
+def _debug(message: str, data: Any = None) -> None:
+    """Simple debug logger for local troubleshooting."""
+    if not CALCSLIVE_DEBUG:
+        return
+    if data is None:
+        print(f"[CalcsLiveDebug] {message}")
+        return
+    try:
+        serialized = json.dumps(data, default=str)
+    except Exception:
+        serialized = str(data)
+    print(f"[CalcsLiveDebug] {message}: {serialized}")
+
+
+def _cell_to_row_col(cell_ref: str) -> tuple[int, int] | None:
+    """Convert Excel cell reference (e.g. B9) to (row, col)."""
+    match = re.fullmatch(r"([A-Za-z]{1,3})(\d{1,5})", cell_ref.strip())
+    if not match:
+        return None
+
+    col_letters, row_str = match.groups()
+    col = 0
+    for ch in col_letters.upper():
+        col = col * 26 + (ord(ch) - ord("A") + 1)
+    return int(row_str), col
+
+
+def _parse_load_request(user_text: str) -> dict:
+    """Parse article load intent for article id, sheet, and anchor cell."""
+    text = user_text or ""
+    article_match = re.search(r"\b([A-Za-z0-9]{6,}-[A-Za-z0-9]{2,})\b", text)
+    anchor_match = re.search(r"\b([A-Za-z]{1,3}\d{1,5})\b", text)
+
+    # Sheet name parsing:
+    # - supports: sheet Sheet2
+    # - supports quoted names with spaces: sheet "My Sheet"
+    quoted_sheet_match = re.search(r"\b(?:sheet|worksheet)\s+[\"']([^\"']+)[\"']", text, re.IGNORECASE)
+    simple_sheet_match = re.search(r"\b(?:sheet|worksheet)\s+([A-Za-z0-9_\-]+)", text, re.IGNORECASE)
+
+    sheet_name = None
+    if quoted_sheet_match:
+        sheet_name = quoted_sheet_match.group(1).strip()
+    elif simple_sheet_match:
+        sheet_name = simple_sheet_match.group(1).strip()
+
+    parsed: dict[str, Any] = {
+        "article_id": article_match.group(1) if article_match else "",
+        "sheet_name": sheet_name,
+        "start_row": 9,
+        "start_col": 2,
+    }
+
+    if anchor_match:
+        row_col = _cell_to_row_col(anchor_match.group(1))
+        if row_col:
+            parsed["start_row"], parsed["start_col"] = row_col
+
+    return parsed
 
 def _normalize_inference_base_url(endpoint: str) -> str:
     """Normalize Azure serverless inference endpoint to OpenAI SDK base_url."""
@@ -64,7 +129,18 @@ def _post_json(url: str, payload: dict, timeout: float, headers: dict | None = N
                     "details": error_body,
                 }
 
-            return {"success": True, "data": response.json()}
+            try:
+                data = response.json()
+            except Exception:
+                return {
+                    "success": False,
+                    "error": "Expected JSON response but received non-JSON payload",
+                    "statusCode": response.status_code,
+                    "details": response.text,
+                    "url": url,
+                }
+
+            return {"success": True, "data": data}
 
     except httpx.ConnectError:
             return {"success": False, "error": f"Connection failed to {url}"}
@@ -78,21 +154,52 @@ def _extract_calc_outputs(calc_result: dict) -> dict:
     data = calc_result.get("data")
     if not isinstance(data, dict):
             return {}
+
+    # Common shape: {"outputs": {...}}
     if isinstance(data.get("outputs"), dict):
             return data["outputs"]
+
+    # Common shape: {"data": {"outputs": {...}}}
     nested = data.get("data")
     if isinstance(nested, dict) and isinstance(nested.get("outputs"), dict):
             return nested["outputs"]
+
+    # n8n style: {"data": {"calculation": {"outputs": {...}}}}
+    if isinstance(nested, dict):
+        calc = nested.get("calculation")
+        if isinstance(calc, dict) and isinstance(calc.get("outputs"), dict):
+            return calc["outputs"]
+
+    # Alternative style: {"calculation": {"outputs": {...}}}
+    calc = data.get("calculation")
+    if isinstance(calc, dict) and isinstance(calc.get("outputs"), dict):
+        return calc["outputs"]
+
     return {}
 
 
 # ============ Excel Bridge Functions ============
 
-def read_excel_pq_table() -> dict:
+def read_excel_pq_table(
+    start_row: int | None = None,
+    header_row: int | None = None,
+    sheet_name: str | None = None,
+) -> dict:
     """Read the PQ table from Excel via the bridge."""
     try:
+            params: dict[str, Any] = {}
+            if start_row is not None and header_row is not None:
+                params["auto"] = "false"
+                params["startRow"] = start_row
+                params["headerRow"] = header_row
+            else:
+                params["auto"] = "true"
+
+            if sheet_name:
+                params["sheetName"] = sheet_name
+
             with httpx.Client(timeout=10.0) as client:
-                response = client.get(f"{EXCEL_BRIDGE_URL}/excel/pq-for-calcslive")
+                response = client.get(f"{EXCEL_BRIDGE_URL}/excel/pq-for-calcslive", params=params)
             response.raise_for_status()
             return response.json()
     except httpx.ConnectError:
@@ -115,6 +222,37 @@ def write_excel_results(results: dict) -> dict:
     except Exception as e:
             return {"success": False, "error": str(e)}
 
+
+def write_excel_results_by_rows(
+    results: dict,
+    row_mapping: dict,
+    value_col: int,
+    sheet_name: str | None = None,
+) -> dict:
+    """Write outputs using explicit rows for deterministic targeting."""
+    mapped_results: list[dict[str, Any]] = []
+    for symbol, value in results.items():
+        row = row_mapping.get(symbol)
+        if row is not None:
+            mapped_results.append({"row": row, "value": value})
+
+    payload: dict[str, Any] = {
+        "results": mapped_results,
+        "valueCol": value_col,
+    }
+    if sheet_name:
+        payload["sheetName"] = sheet_name
+
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(f"{EXCEL_BRIDGE_URL}/excel/write-pq-values", json=payload)
+            response.raise_for_status()
+            return response.json()
+    except httpx.ConnectError:
+        return {"success": False, "error": f"Cannot connect to Excel Bridge at {EXCEL_BRIDGE_URL}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 def get_excel_health() -> dict:
     """Check Excel connection health."""
     try:
@@ -127,10 +265,280 @@ def get_excel_health() -> dict:
     except Exception as e:
             return {"success": False, "error": str(e)}
 
+def fetch_and_load_article(article_id: str) -> dict:
+    """Compatibility wrapper with default anchor for existing calls."""
+    return load_article_to_excel(article_id)
+
+
+def fetch_calcslive_metadata(article_id: str) -> dict:
+    """Fetch article metadata from CalcsLive validate endpoint."""
+    if not article_id:
+        return {"success": False, "error": "article_id is required"}
+
+    headers = {"Content-Type": "application/json"}
+    if CALCSLIVE_API_KEY:
+        headers["Authorization"] = f"Bearer {CALCSLIVE_API_KEY}"
+
+    validate_candidates = [
+        f"{CALCSLIVE_API_URL.rstrip('/')}/validate",
+    ]
+    params = {"articleId": article_id}
+    if CALCSLIVE_API_KEY:
+        params["apiKey"] = CALCSLIVE_API_KEY
+
+    try:
+        data = None
+        with httpx.Client(timeout=15.0) as client:
+            for validate_url in validate_candidates:
+                response = client.get(validate_url, params=params, headers=headers)
+                if response.status_code == 404:
+                    continue
+                response.raise_for_status()
+                data = response.json()
+                break
+
+        if data is None:
+            return {
+                "success": False,
+                "error": "CalcsLive validate endpoint not found",
+                "details": {"candidates": validate_candidates},
+            }
+    except httpx.ConnectError:
+        return {"success": False, "error": "Cannot connect to CalcsLive API"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+    if not data.get("success"):
+        return {
+            "success": False,
+            "error": "CalcsLive validate failed",
+            "details": data,
+        }
+
+    article = data.get("data", {}).get("article", {})
+    input_pqs = article.get("inputPQs", [])
+    output_pqs = article.get("outputPQs", [])
+
+    def normalize_input(item: dict) -> dict:
+        default_value = item.get("faceValue")
+        if default_value is None:
+            default_value = item.get("value")
+        if default_value is None:
+            default_value = item.get("defaultValue")
+
+        return {
+            "sym": item.get("symbol") or item.get("sym"),
+            "unit": item.get("unit", ""),
+            "description": item.get("description") or item.get("name") or "",
+            "expression": "",
+            "value": default_value,
+        }
+
+    def normalize_output(item: dict) -> dict:
+        return {
+            "sym": item.get("symbol") or item.get("sym"),
+            "unit": item.get("unit", ""),
+            "description": item.get("description") or item.get("name") or "",
+            "expression": item.get("expression", ""),
+            "value": None,
+        }
+
+    pqs = [normalize_input(pq) for pq in input_pqs] + [normalize_output(pq) for pq in output_pqs]
+
+    article_metadata = {
+        "title": article.get("title") or article.get("name") or "",
+        "articleId": article_id,
+        "url": article.get("url") or f"https://www.calcslive.com/editor/{article_id}",
+        "creator": article.get("creator") or article.get("createdBy") or "",
+        "date": article.get("createdAt") or article.get("updatedAt") or "",
+    }
+
+    return {
+        "success": True,
+        "articleId": article_id,
+        "article": article,
+        "articleMetadata": article_metadata,
+        "pqs": pqs,
+        "inputCount": len(input_pqs),
+        "outputCount": len(output_pqs),
+    }
+
+
+def load_article_to_excel(
+    article_id: str,
+    start_row: int = 9,
+    start_col: int = 2,
+    include_headers: bool = True,
+    write_metadata: bool = True,
+    prefill_outputs: bool = True,
+    sheet_name: str | None = None,
+) -> dict:
+    """Fetch article metadata and populate an Excel table at a configurable anchor."""
+    if not article_id:
+        return {"success": False, "error": "article_id is required"}
+
+    metadata = fetch_calcslive_metadata(article_id)
+    if not metadata.get("success"):
+        return metadata
+
+    payload = {
+        "pqs": metadata.get("pqs", []),
+        "startRow": start_row,
+        "startCol": start_col,
+        "includeHeaders": include_headers,
+        "writeMetadata": write_metadata,
+        "articleMetadata": metadata.get("articleMetadata", {}),
+    }
+    if sheet_name:
+        payload["sheetName"] = sheet_name
+
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            setup_res = client.post(f"{EXCEL_BRIDGE_URL}/excel/setup-from-article", json=payload)
+            setup_res.raise_for_status()
+            bridge_data = setup_res.json()
+    except httpx.HTTPStatusError as e:
+        detail = ""
+        try:
+            detail = e.response.text
+        except Exception:
+            detail = str(e)
+        return {
+            "success": False,
+            "error": f"Failed to load article: {e}",
+            "details": detail,
+            "request": {
+                "sheet_name": sheet_name,
+                "start_row": start_row,
+                "start_col": start_col,
+            },
+        }
+    except httpx.ConnectError:
+        return {"success": False, "error": f"Cannot connect to Excel Bridge at {EXCEL_BRIDGE_URL}"}
+    except Exception as e:
+        return {"success": False, "error": f"Failed to load article: {e}"}
+
+    result: dict[str, Any] = {
+        "success": True,
+        "message": f"Loaded article {article_id} into Excel",
+        "articleId": article_id,
+        "inputCount": metadata.get("inputCount", 0),
+        "outputCount": metadata.get("outputCount", 0),
+        "anchor": {"startRow": start_row, "startCol": start_col},
+        "bridgeResponse": bridge_data,
+    }
+
+    global LAST_TABLE_CONTEXT
+    LAST_TABLE_CONTEXT = {
+        "articleId": article_id,
+        "startRow": bridge_data.get("dataStartRow", start_row),
+        "headerRow": bridge_data.get("headerRow", start_row - 1),
+        "startCol": start_col,
+        "sheetName": bridge_data.get("sheetName", sheet_name),
+    }
+
+    if prefill_outputs:
+        # Keep prefill path identical to manual recalc path for consistency.
+        prefill_result = recalculate_excel_table()
+        result["prefill"] = {
+            "attempted": True,
+            "success": bool(prefill_result.get("success")),
+            "phase": prefill_result.get("phase"),
+            "outputs": prefill_result.get("calculatedOutputs", {}),
+            "error": prefill_result.get("error"),
+            "details": prefill_result.get("details"),
+            "writeResult": prefill_result.get("writeResult"),
+        }
+
+    return result
+
+
+def recalculate_excel_table() -> dict:
+    """Deterministic closed-loop recalc: read table, calculate, write outputs."""
+    health = get_excel_health()
+    if not health.get("success"):
+        return {"success": False, "phase": "health", "error": health.get("error")}
+
+    start_row = LAST_TABLE_CONTEXT.get("startRow")
+    header_row = LAST_TABLE_CONTEXT.get("headerRow")
+    sheet_name = LAST_TABLE_CONTEXT.get("sheetName")
+
+    pq_data = read_excel_pq_table(start_row=start_row, header_row=header_row, sheet_name=sheet_name)
+    _debug("Recalc read pq_data", {
+        "success": pq_data.get("success"),
+        "articleId": pq_data.get("articleId"),
+        "inputsCount": len(pq_data.get("inputs", {})) if isinstance(pq_data.get("inputs"), dict) else None,
+        "outputsCount": len(pq_data.get("outputs", {})) if isinstance(pq_data.get("outputs"), dict) else None,
+        "rowMappingCount": len(pq_data.get("rowMapping", {})) if isinstance(pq_data.get("rowMapping"), dict) else None,
+        "valueCol": pq_data.get("valueCol"),
+        "sheetName": pq_data.get("sheetName"),
+    })
+    if not pq_data.get("success"):
+        return {"success": False, "phase": "read", "error": pq_data.get("error")}
+
+    calc_result = calculate_with_calcslive(
+        pq_data.get("pqs", []),
+        pq_data.get("inputs", {}),
+        pq_data.get("outputs", {}),
+        article_id=pq_data.get("articleId") or LAST_TABLE_CONTEXT.get("articleId"),
+    )
+    if not calc_result.get("success"):
+        details = calc_result.get("details")
+        error = calc_result.get("error") or "Calculation failed"
+        if isinstance(details, list):
+            summary = "; ".join(
+                f"{d.get('url')} [{d.get('statusCode')}] {d.get('error')}"
+                for d in details[:3]
+                if isinstance(d, dict)
+            )
+            if summary:
+                error = f"{error} | attempts: {summary}"
+        elif details:
+            error = f"{error} | details: {str(details)[:400]}"
+        _debug("Recalc calculate failed", {"error": error, "details": details})
+        return {"success": False, "phase": "calculate", "error": error, "details": details}
+
+    _debug("Recalc calc_result", calc_result)
+    outputs = _extract_calc_outputs(calc_result)
+    _debug("Recalc extracted outputs", outputs)
+    values = {sym: info.get("value") for sym, info in outputs.items() if isinstance(info, dict) and "value" in info}
+    _debug("Recalc values to write", values)
+
+    row_mapping = pq_data.get("rowMapping", {})
+    value_col = pq_data.get("valueCol")
+    _debug("Recalc write target", {"sheetName": sheet_name, "valueCol": value_col, "rowMapping": row_mapping})
+    if row_mapping and value_col:
+        write_result = write_excel_results_by_rows(values, row_mapping, value_col, sheet_name=sheet_name)
+    else:
+        write_result = write_excel_results(values)
+
+    if not write_result.get("success"):
+        return {"success": False, "phase": "write", "error": write_result.get("error")}
+
+    return {
+        "success": True,
+        "phase": "complete",
+        "articleId": pq_data.get("articleId"),
+        "calculatedOutputs": values,
+        "writeResult": write_result,
+        "debug": {
+            "sheetName": sheet_name,
+            "valueCol": value_col,
+            "rowMapping": row_mapping,
+            "extractedOutputs": outputs,
+            "valuesToWrite": values,
+        },
+    }
+
 
 # ============ CalcsLive Functions ============
 
-def calculate_with_calcslive(pqs: list, inputs: dict, outputs: dict = None) -> dict:
+def calculate_with_calcslive(
+    pqs: list,
+    inputs: dict,
+    outputs: dict = None,
+    article_id: str | None = None,
+) -> dict:
     """
     Perform a unit-aware calculation using CalcsLive run_script API.
     """
@@ -139,32 +547,76 @@ def calculate_with_calcslive(pqs: list, inputs: dict, outputs: dict = None) -> d
             payload["inputs"] = inputs
     if outputs:
             payload["outputs"] = outputs
+    if article_id:
+            payload["articleId"] = article_id
 
     headers = {"Content-Type": "application/json"}
     if CALCSLIVE_API_KEY:
             headers["Authorization"] = f"Bearer {CALCSLIVE_API_KEY}"
+            headers["X-API-Key"] = CALCSLIVE_API_KEY
 
-    result = _post_json(
-            f"{CALCSLIVE_API_URL}/run-script",
-            payload,
-            timeout=30.0,
-            headers=headers,
-    )
+    run_candidates: list[tuple[str, dict[str, Any]]] = []
 
-    if not result.get("success"):
-            if result.get("statusCode") == 401:
-                return {
-                    "success": False,
-                    "error": "CalcsLive API requires authentication",
-                    "details": result.get("details"),
-                }
-            return result
+    # Prefer article-based endpoint when article ID is available.
+    if article_id:
+        article_payload: dict[str, Any] = {
+            "articleId": article_id,
+            "inputs": inputs or {},
+        }
+        if outputs:
+            article_payload["outputs"] = outputs
+        if CALCSLIVE_API_KEY:
+            article_payload["apiKey"] = CALCSLIVE_API_KEY
+        run_candidates.append((f"{CALCSLIVE_API_URL.rstrip('/')}/calculate", article_payload))
 
-    data = result.get("data")
-    if isinstance(data, dict) and data.get("success") is False:
-            return data
+    # Keep run-script as secondary/fallback for full PQ script execution.
+    if pqs:
+        run_candidates.append((f"{CALCSLIVE_API_URL.rstrip('/')}/run-script", payload))
 
-    return {"success": True, "data": data}
+    failures: list[dict[str, Any]] = []
+    _debug("Calc run candidates", [c[0] for c in run_candidates])
+    for run_url, run_payload in run_candidates:
+        _debug("Calc attempt payload", {"url": run_url, "payload": run_payload})
+        attempt = _post_json(run_url, run_payload, timeout=30.0, headers=headers)
+        _debug("Calc attempt response", {"url": run_url, "success": attempt.get("success"), "statusCode": attempt.get("statusCode"), "error": attempt.get("error")})
+        if attempt.get("success"):
+            data = attempt.get("data")
+            if isinstance(data, dict) and data.get("success") is False:
+                failures.append(
+                    {
+                        "url": run_url,
+                        "error": data.get("error") or "API returned success=false",
+                        "details": data,
+                    }
+                )
+                continue
+            _debug("Calc successful raw data", data)
+            return {"success": True, "data": data}
+
+        failures.append(
+            {
+                "url": run_url,
+                "statusCode": attempt.get("statusCode"),
+                "error": attempt.get("error"),
+                "details": attempt.get("details"),
+            }
+        )
+
+    _debug("Calc all failures", failures)
+
+    auth_failure = next((f for f in failures if f.get("statusCode") == 401), None)
+    if auth_failure:
+        return {
+            "success": False,
+            "error": "CalcsLive API requires authentication",
+            "details": auth_failure.get("details") or failures,
+        }
+
+    return {
+        "success": False,
+        "error": "All CalcsLive calculation endpoints failed",
+        "details": failures,
+    }
 
 
 # ============ Agent Core Class ============
@@ -281,6 +733,72 @@ class CalcsLiveAgent:
                                 "required": ["pqs", "inputs"]
                             }
                     }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                            "name": "fetch_calcslive_metadata",
+                            "description": "Fetch metadata and PQ definitions for an existing CalcsLive article using article ID",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "article_id": {
+                                            "type": "string",
+                                            "description": "The CalcsLive article ID, e.g., '3M7ALBF4U-3BL'"
+                                    }
+                                },
+                                "required": ["article_id"]
+                            }
+                    }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                            "name": "load_article_to_excel",
+                            "description": "Fetch a CalcsLive article by ID and construct its input/output PQ table in Excel at a configurable anchor",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "article_id": {
+                                            "type": "string",
+                                            "description": "The CalcsLive article ID, e.g., '3M7ALBF4U-3BL'"
+                                    },
+                                    "start_row": {
+                                            "type": "integer",
+                                            "description": "Data start row for PQ entries (default 9). Header goes one row above."
+                                    },
+                                    "start_col": {
+                                            "type": "integer",
+                                            "description": "Start column for Description field (default 2 = column B)."
+                                    },
+                                    "sheet_name": {
+                                            "type": "string",
+                                            "description": "Optional target worksheet name. Uses active sheet when omitted."
+                                    },
+                                    "include_headers": {
+                                            "type": "boolean",
+                                            "description": "Whether to write header row above table."
+                                    },
+                                    "write_metadata": {
+                                            "type": "boolean",
+                                            "description": "Whether to write article metadata rows above the table."
+                                    },
+                                    "prefill_outputs": {
+                                            "type": "boolean",
+                                            "description": "Whether to run initial calculation and prefill output values after table creation."
+                                    }
+                                },
+                                "required": ["article_id"]
+                            }
+                    }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                            "name": "recalculate_excel_table",
+                            "description": "Deterministic closed-loop recalc: read current Excel table, run CalcsLive calculation, and write outputs back",
+                            "parameters": {"type": "object", "properties": {}, "required": []}
+                    }
                 }
             ]
 
@@ -288,20 +806,17 @@ class CalcsLiveAgent:
 
 Your workflow:
 1. First, check Excel health to ensure connection
-2. Read the PQ (Physical Quantity) table from Excel to get inputs and output definitions
-3. Use CalcsLive to calculate the outputs with proper unit conversions
-4. Write the calculated results back to Excel
+2. If the user asks to "Load an Article", use `load_article_to_excel` to build the physical table structure in Excel using configurable anchor parameters.
+3. Read the PQ (Physical Quantity) table from Excel (`read_excel_pq_table`) to get current inputs and output definitions.
+4. Use CalcsLive (`calculate_with_calcslive`) to calculate the outputs with proper unit conversions.
+5. Write the calculated results back to Excel (`write_excel_results`).
 
 Key concepts:
 - PQ = Physical Quantity (value + unit, e.g., "2 inches", "3 cm")
-- Inputs = PQs where user provides values (no expression)
-- Outputs = PQs with expressions that need calculation
-
-When asked to calculate, follow this sequence:
-1. Call get_excel_health to verify connection
-2. Call read_excel_pq_table to get the data
-3. Call calculate_with_calcslive with the PQs and inputs
-4. Call write_excel_results with the calculated values
+- Inputs = PQs where user provides values (no expression/formula). These are highlighted Yellow in Excel.
+- Outputs = PQs with expressions that need calculation. These are highlighted Green in Excel.
+- Data-Driven Closed-Loop: The user types numbers/units into Yellow cells then asks to "Update" or "Recalculate"; call `recalculate_excel_table` for deterministic full-cycle execution.
+- Do not mention or require `=CalcsLive(...)` formulas in Excel cells; expression text in the Expression column is enough.
 
 Always explain what you're doing. Show your tool results to the user as they happen if it takes multiple steps.
 """
@@ -310,6 +825,20 @@ Always explain what you're doing. Show your tool results to the user as they hap
             """Execute a tool and return the result."""
             if func_name == "get_excel_health":
                 return get_excel_health()
+            elif func_name == "fetch_calcslive_metadata":
+                return fetch_calcslive_metadata(func_args.get("article_id", ""))
+            elif func_name == "load_article_to_excel":
+                return load_article_to_excel(
+                    article_id=func_args.get("article_id", ""),
+                    start_row=func_args.get("start_row", 9),
+                    start_col=func_args.get("start_col", 2),
+                    include_headers=func_args.get("include_headers", True),
+                    write_metadata=func_args.get("write_metadata", True),
+                    prefill_outputs=func_args.get("prefill_outputs", True),
+                    sheet_name=func_args.get("sheet_name"),
+                )
+            elif func_name == "recalculate_excel_table":
+                return recalculate_excel_table()
             elif func_name == "read_excel_pq_table":
                 return read_excel_pq_table()
             elif func_name == "write_excel_results":
@@ -332,6 +861,83 @@ Always explain what you're doing. Show your tool results to the user as they hap
             
             tool_round = 0
             executed_tools = []
+
+            latest_user = ""
+            for msg in reversed(messages):
+                if msg.get("role") == "user":
+                    latest_user = msg.get("content", "") or ""
+                    break
+
+            lowered = latest_user.lower()
+            if any(k in lowered for k in ["load calculation", "load article", "populate excel", "setup calculation"]):
+                parsed = _parse_load_request(latest_user)
+                health = get_excel_health()
+                executed_tools.append(("get_excel_health", health))
+
+                if not health.get("success"):
+                    messages.append({
+                        "role": "assistant",
+                        "content": f"I cannot access Excel yet: {health.get('error')}",
+                    })
+                    return messages, executed_tools
+
+                if not parsed.get("article_id"):
+                    messages.append({
+                        "role": "assistant",
+                        "content": "Please provide a valid article ID (for example: 3M7ALBF4U-3BL).",
+                    })
+                    return messages, executed_tools
+
+                load_result = load_article_to_excel(
+                    article_id=parsed["article_id"],
+                    start_row=parsed["start_row"],
+                    start_col=parsed["start_col"],
+                    include_headers=True,
+                    write_metadata=True,
+                    sheet_name=parsed.get("sheet_name"),
+                )
+                executed_tools.append(("load_article_to_excel", load_result))
+
+                if load_result.get("success"):
+                    bridge = load_result.get("bridgeResponse", {})
+                    target_sheet = bridge.get("sheetName", health.get("sheetName", "active sheet"))
+                    prefill = load_result.get("prefill", {})
+                    prefill_text = ""
+                    if prefill.get("attempted"):
+                        if prefill.get("success"):
+                            prefill_text = " Initial output values were prefilled successfully."
+                        else:
+                            prefill_text = f" Prefill was attempted but failed: {prefill.get('error', 'unknown reason')}."
+                    messages.append({
+                        "role": "assistant",
+                        "content": (
+                            f"Loaded article `{parsed['article_id']}` into Excel on `{target_sheet}` at "
+                            f"row {parsed['start_row']}, col {parsed['start_col']}. "
+                            f"You can now change input values/units and ask me to recalculate.{prefill_text}"
+                        ),
+                    })
+                else:
+                    messages.append({
+                        "role": "assistant",
+                        "content": f"I could not load the article: {load_result.get('error')}",
+                    })
+                return messages, executed_tools
+
+            if any(k in lowered for k in ["recalculate", "re-calculate", "update outputs", "update values", "update the results", "refresh calculation"]):
+                recalc_result = recalculate_excel_table()
+                executed_tools.append(("recalculate_excel_table", recalc_result))
+                if recalc_result.get("success"):
+                    outputs = recalc_result.get("calculatedOutputs", {})
+                    messages.append({
+                        "role": "assistant",
+                        "content": f"Recalculation complete. Updated outputs: {outputs}",
+                    })
+                else:
+                    messages.append({
+                        "role": "assistant",
+                        "content": f"Recalculation failed at {recalc_result.get('phase')}: {recalc_result.get('error')}",
+                    })
+                return messages, executed_tools
             
             while True:
                 tool_round += 1

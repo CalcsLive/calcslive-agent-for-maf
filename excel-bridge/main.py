@@ -93,6 +93,8 @@ class SetupFromArticleRequest(BaseModel):
     startRow: int = 2
     startCol: int = 1
     includeHeaders: bool = True
+    writeMetadata: bool = False
+    articleMetadata: Optional[Dict[str, Any]] = None
     sheetName: Optional[str] = None
 
 
@@ -250,6 +252,8 @@ def api_setup_from_article(request: SetupFromArticleRequest):
         request.startRow,
         request.startCol,
         request.includeHeaders,
+        request.writeMetadata,
+        request.articleMetadata,
         request.sheetName
     )
 

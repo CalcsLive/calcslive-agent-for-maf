@@ -1,7 +1,28 @@
 import streamlit as st
-from agent_core import CalcsLiveAgent
+from agent_core import CalcsLiveAgent, LAST_TABLE_CONTEXT, read_excel_pq_table, recalculate_excel_table
 import json
 import time
+
+
+def _read_loaded_table() -> dict:
+    """Read table using last loaded anchor context for deterministic polling."""
+    if not LAST_TABLE_CONTEXT:
+        return {"success": False, "error": "No loaded article context"}
+
+    return read_excel_pq_table(
+        start_row=LAST_TABLE_CONTEXT.get("startRow"),
+        header_row=LAST_TABLE_CONTEXT.get("headerRow"),
+        sheet_name=LAST_TABLE_CONTEXT.get("sheetName"),
+    )
+
+
+def _table_fingerprint(pq_data: dict) -> str:
+    """Build hashable JSON fingerprint from input/output unit-aware state."""
+    payload = {
+        "inputs": pq_data.get("inputs", {}),
+        "outputs": pq_data.get("outputs", {}),
+    }
+    return json.dumps(payload, sort_keys=True, default=str)
 
 st.set_page_config(
     page_title="CalcsLive Agent UI",
@@ -11,7 +32,7 @@ st.set_page_config(
 
 # Render main UI elements
 st.title("🧮 CalcsLive Agent Dashboard")
-st.markdown("Automate unit-aware calculations between your Excel spreadsheets and CalcsLive! Chat with the Orchestrator Agent below.")
+st.markdown("Automate unit-aware calculations between your Excel spreadsheets and CalcsLive! Chat with the Orchestrator Agent below. \n please load calculation 3M7ALBF4U-3BL to Excel sheet Sheet2 at B9")
 
 # Initialize the Azure Agent in session state
 if "agent" not in st.session_state:
@@ -30,6 +51,59 @@ if "messages" not in st.session_state:
         st.session_state.messages.append({"role": "assistant", "content": "Hi! I am the CalcsLive Agent. You can ask me to check Excel, read your PQ table, or calculate and update the open spreadsheet."})
     else:
         st.session_state.messages = []
+
+# Live mode state
+if "live_last_fingerprint" not in st.session_state:
+    st.session_state.live_last_fingerprint = None
+if "live_last_recalc_ts" not in st.session_state:
+    st.session_state.live_last_recalc_ts = 0.0
+if "live_last_status" not in st.session_state:
+    st.session_state.live_last_status = "Idle"
+if "live_last_result" not in st.session_state:
+    st.session_state.live_last_result = None
+
+with st.sidebar:
+    st.subheader("Live Mode")
+    live_mode = st.checkbox("Enable auto-recalc", value=False, key="live_mode")
+    poll_interval = st.slider("Poll interval (seconds)", 1, 10, 2, key="live_poll_interval")
+    debounce_interval = st.slider("Debounce (seconds)", 1, 30, 3, key="live_debounce")
+    st.caption("Auto-recalc runs only when inputs or units change in the loaded table.")
+
+# Live polling/recalc loop (best-effort, no extra dependency)
+if st.session_state.get("live_mode") and "agent" in st.session_state:
+    table = _read_loaded_table()
+    if table.get("success"):
+        current_fingerprint = _table_fingerprint(table)
+        last_fingerprint = st.session_state.live_last_fingerprint
+        now = time.time()
+
+        if last_fingerprint is None:
+            st.session_state.live_last_fingerprint = current_fingerprint
+            st.session_state.live_last_status = "Live mode armed"
+        elif current_fingerprint != last_fingerprint:
+            elapsed = now - st.session_state.live_last_recalc_ts
+            if elapsed >= st.session_state.live_debounce:
+                result = recalculate_excel_table()
+                st.session_state.live_last_result = result
+                st.session_state.live_last_recalc_ts = now
+                st.session_state.live_last_fingerprint = current_fingerprint
+                if result.get("success"):
+                    st.session_state.live_last_status = f"Auto-recalc OK ({time.strftime('%H:%M:%S')})"
+                else:
+                    st.session_state.live_last_status = f"Auto-recalc failed: {result.get('phase')}"
+            else:
+                st.session_state.live_last_status = f"Change detected; waiting debounce ({int(st.session_state.live_debounce - elapsed)}s)"
+        else:
+            st.session_state.live_last_status = "Watching for changes"
+    else:
+        st.session_state.live_last_status = f"Live mode waiting: {table.get('error')}"
+
+with st.expander("Live Mode Status", expanded=False):
+    st.markdown(f"**Status:** {st.session_state.live_last_status}")
+    if LAST_TABLE_CONTEXT:
+        st.json({"tableContext": LAST_TABLE_CONTEXT})
+    if st.session_state.live_last_result:
+        st.json({"lastResult": st.session_state.live_last_result})
 
 # Display chat history on app rerun
 for message in st.session_state.messages:
@@ -77,3 +151,8 @@ if prompt := st.chat_input("Ask me to 'Calculate the values and write them back 
                 st.markdown(final_response)
             else:
                 st.markdown("*(Finished execution with no final text response)*")
+
+# Trigger next polling cycle
+if st.session_state.get("live_mode"):
+    time.sleep(st.session_state.live_poll_interval)
+    st.rerun()
