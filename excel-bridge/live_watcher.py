@@ -9,13 +9,27 @@ from __future__ import annotations
 import os
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import httpx
 import pythoncom
 import win32com.client
 
+try:
+    from dotenv import load_dotenv
+except Exception:  # pragma: no cover - optional dependency in some environments
+    load_dotenv = None
+
 from excel_api import find_article_id, find_pq_table, read_pq_table, write_pq_results, write_pq_values
+
+
+if load_dotenv:
+    current_dir = Path(__file__).resolve().parent
+    repo_root = current_dir.parent
+    load_dotenv(repo_root / ".env")
+    load_dotenv(current_dir / ".env")
+    load_dotenv(repo_root / "azure-agent" / ".env")
 
 
 CALCSLIVE_API_URL = os.getenv("CALCSLIVE_API_URL", "https://www.calcslive.com/api/v1").rstrip("/")
@@ -197,6 +211,22 @@ class LiveRecalcWatcher:
             self.debounce_seconds = max(0.5, float(debounce_seconds))
             if api_key is not None:
                 self.api_key = api_key
+            else:
+                # Re-read token from environment on each start so bridge picks up
+                # .env changes without code changes.
+                self.api_key = os.getenv("CALCSLIVE_API_KEY", self.api_key)
+
+            _debug(
+                "Live watcher start config",
+                {
+                    "autoDetect": self.auto_detect,
+                    "sheetName": self.sheet_name,
+                    "startRow": self.start_row,
+                    "headerRow": self.header_row,
+                    "debounceSeconds": self.debounce_seconds,
+                    "hasAuthToken": bool(self.api_key),
+                },
+            )
 
             if self._thread and self._thread.is_alive():
                 self.enabled = True

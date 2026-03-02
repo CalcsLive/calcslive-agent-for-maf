@@ -343,8 +343,17 @@ def fetch_calcslive_metadata(article_id: str) -> dict:
 
     pqs = [normalize_input(pq) for pq in input_pqs] + [normalize_output(pq) for pq in output_pqs]
 
+    response_data = data.get("data", {}) if isinstance(data, dict) else {}
+    article_title = (
+        article.get("articleTitle")
+        or article.get("title")
+        or article.get("name")
+        or response_data.get("articleTitle")
+        or ""
+    )
+
     article_metadata = {
-        "title": article.get("title") or article.get("name") or "",
+        "title": article_title,
         "articleId": article_id,
         "url": article.get("url") or f"https://www.calcslive.com/editor/{article_id}",
         "creator": article.get("creator") or article.get("createdBy") or "",
