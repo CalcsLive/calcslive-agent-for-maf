@@ -14,11 +14,11 @@
 
 | Requirement | How We Meet It |
 |-------------|----------------|
-| **Microsoft Foundry / Agent Framework / Azure MCP** | ⚠️ In progress: wire explicit MAF artifacts and ODR local-tool evidence |
+| **Microsoft Foundry / Agent Framework / Azure MCP** | ⚠️ In progress: local-first agent flow complete; explicit hosted MAF artifact proof still pending |
 | **Azure Deployment** | ⚠️ In progress: local-first validated, hosted entrypoint pending |
 | **GitHub Public Repo** | ✅ New repo created after Feb 10, 2026 |
 | **Demo Video (2 min)** | ⚠️ Script outlined, recording pending |
-| **Architecture Diagram** | ⚠️ Draft in plan; export submission image pending |
+| **Architecture Diagram** | ✅ `docs/architecture.png` generated and aligned to implementation |
 
 ---
 
@@ -26,11 +26,11 @@
 
 | Requirement | Evidence Artifact | Owner | Status |
 |-------------|-------------------|-------|--------|
-| Agent Framework / Azure MCP | `azure-agent/` MAF artifacts + ODR local-tool registration proof + demo narration callout | e3d | ⚠️ |
+| Agent Framework / Azure MCP | `azure-agent/` orchestration flow + ODR registration logs + demo narration callout | e3d | ⚠️ |
 | Azure deployment | Deployed endpoint URL + portal screenshot + successful invocation log | e3d | ⚠️ |
 | Public repo | GitHub repo link with commit history after Feb 10 | e3d | ✅ |
 | 2-min demo video | `demo/demo_script.md` + final MP4 + timestamps for key steps | e3d | ⚠️ |
-| Architecture diagram | `docs/architecture.png` matching shipped implementation | e3d | ⚠️ |
+| Architecture diagram | `docs/architecture.png` matching shipped implementation | e3d | ✅ |
 
 ---
 
@@ -40,6 +40,8 @@
 - ODR: v0.1.1 available locally
 - Azure-backed agent path: working (`azure-agent/agent.py`)
 - Excel bridge path: working (`excel-bridge/` on `localhost:8001`)
+- Streamlit commander path: working (`azure-agent/app.py`)
+- Event-driven reactive recalc: working (`excel-bridge/live_watcher.py`)
 
 **Execution modes going forward**
 - **Mode A (MVP primary)**: local orchestration + Azure inference + local Excel bridge
@@ -222,24 +224,24 @@ Standard Excel ignores units - formulas don't know that "2 in" and "3 cm" are di
 - [x] Write output values by symbol into Excel value column
 
 ### Phase 3: Core Agent - MVP Freeze (Article Consumer) (Days 8-12) ~15 hours
-- [ ] Lock MVP scope: **consumer flow only** (no article creation required)
+- [x] Lock MVP scope: **consumer flow only** (no article creation required)
 - [ ] Set up Microsoft Agent Framework project artifacts for hosted path
-- [ ] Define CalcsLive tools (calculate)
-- [ ] Define Excel tools (health, pq read, result write)
-- [ ] Implement deterministic orchestrator path: read Excel → call CalcsLive → write results
+- [x] Define CalcsLive tools (calculate + validate metadata + script fallback)
+- [x] Define Excel tools (health, pq read, result write, setup from article)
+- [x] Implement deterministic orchestrator path: load -> read Excel -> call CalcsLive -> write results
 - [ ] Deploy hosted entrypoint (Functions or equivalent)
 
 **ODR sub-track (parallel to Phase 3)**
-- [ ] Confirm ODR runtime health/version and capture evidence
-- [ ] Register Excel bridge as local tool in ODR
-- [ ] Verify discovery of local Excel tool from agent runtime
+- [x] Confirm ODR runtime health/version and capture evidence
+- [x] Register Excel bridge as local tool in ODR
+- [ ] Verify discovery of local Excel tool from agent runtime (blocked by policy gate)
 - [ ] Execute one ODR-routed flow: read PQ → calculate → write results
-- [ ] Capture logs/screenshots for compliance evidence
+- [x] Capture logs/screenshots for compliance evidence
 
 **Acceptance criteria**
-- [ ] Single prompt executes full workflow end-to-end
-- [ ] Output cells (`V`, `m`) update correctly for at least 3 reruns
-- [ ] End-to-end runtime under 10 seconds on demo sheet
+- [x] Single prompt executes full workflow end-to-end
+- [x] Output cells (`V`, `m`) update correctly for at least 3 reruns
+- [ ] End-to-end runtime under 10 seconds on demo sheet (measure and record)
 - [ ] One successful ODR local-tool run is recorded with evidence
 
 ### Phase 4: Stretch - Article Creator Agent (Days 13-17) ~15 hours
@@ -307,6 +309,7 @@ Standard Excel ignores units - formulas don't know that "2 in" and "3 cm" are di
 |------|--------|------------|----------|
 | ODR integration churn (new runtime) | Medium | Keep ODR test scope minimal and scripted | Use non-ODR MVP path in final demo |
 | Azure ↔ local connectivity | High | Keep local-first MVP path; avoid relay dependency | Local bridge + Azure inference local-run demo |
+| CalcsLive endpoint contract drift | Medium | Pin endpoint list in code + keep debug logs enabled | Fallback to known working endpoint path |
 | CalcsLive auth / API availability | High | Pre-validate keys and sample payloads | Demo mode with deterministic outputs |
 | Excel COM instability | Medium | Keep workbook/sheet naming fixed; add health checks | Restart bridge + use backup workbook |
 | Last-minute scope creep | Medium | MVP freeze date and strict backlog | Cut stretch features |
@@ -327,6 +330,21 @@ Standard Excel ignores units - formulas don't know that "2 in" and "3 cm" are di
 - End-to-end calculation cycle in under 10 seconds
 - At least 3 consecutive successful reruns after changing inputs
 - Demo run completes without manual cell editing for outputs
+
+---
+
+## Current Delivery Snapshot (Mar 2)
+
+### ✅ Working now
+- Article load to Excel with metadata + PQ table at configurable anchor.
+- Initial output prefill after load.
+- Manual recalc by prompt (deterministic read -> calculate -> write).
+- Event-driven reactive recalc via Excel `SheetChange` watcher (no LLM per edit).
+
+### 🟡 Remaining for submission
+- Explicit hosted-path MAF artifact/evidence.
+- ODR full invocation proof (currently policy-gated).
+- Final 2-minute video and evidence linking.
 
 ---
 
