@@ -1,28 +1,33 @@
 import streamlit as st
-from agent_core import CalcsLiveAgent, LAST_TABLE_CONTEXT, read_excel_pq_table, recalculate_excel_table
-import json
+from agent_core import CalcsLiveAgent, EXCEL_BRIDGE_URL, LAST_TABLE_CONTEXT
 import time
+import httpx
 
 
-def _read_loaded_table() -> dict:
-    """Read table using last loaded anchor context for deterministic polling."""
-    if not LAST_TABLE_CONTEXT:
-        return {"success": False, "error": "No loaded article context"}
-
-    return read_excel_pq_table(
-        start_row=LAST_TABLE_CONTEXT.get("startRow"),
-        header_row=LAST_TABLE_CONTEXT.get("headerRow"),
-        sheet_name=LAST_TABLE_CONTEXT.get("sheetName"),
-    )
+def _bridge_url() -> str:
+    return EXCEL_BRIDGE_URL
 
 
-def _table_fingerprint(pq_data: dict) -> str:
-    """Build hashable JSON fingerprint from input/output unit-aware state."""
-    payload = {
-        "inputs": pq_data.get("inputs", {}),
-        "outputs": pq_data.get("outputs", {}),
-    }
-    return json.dumps(payload, sort_keys=True, default=str)
+def _bridge_post(path: str, payload: dict | None = None) -> dict:
+    url = f"{_bridge_url().rstrip('/')}{path}"
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(url, json=payload or {})
+            response.raise_for_status()
+            return response.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def _bridge_get(path: str) -> dict:
+    url = f"{_bridge_url().rstrip('/')}{path}"
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(url)
+            response.raise_for_status()
+            return response.json()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 st.set_page_config(
     page_title="CalcsLive Agent UI",
@@ -55,53 +60,69 @@ if "messages" not in st.session_state:
 # Live mode state
 if "live_last_fingerprint" not in st.session_state:
     st.session_state.live_last_fingerprint = None
-if "live_last_recalc_ts" not in st.session_state:
-    st.session_state.live_last_recalc_ts = 0.0
 if "live_last_status" not in st.session_state:
     st.session_state.live_last_status = "Idle"
 if "live_last_result" not in st.session_state:
     st.session_state.live_last_result = None
+if "live_bridge_enabled" not in st.session_state:
+    st.session_state.live_bridge_enabled = False
+if "live_status_raw" not in st.session_state:
+    st.session_state.live_status_raw = None
 
 with st.sidebar:
     st.subheader("Live Mode")
-    live_mode = st.checkbox("Enable auto-recalc", value=False, key="live_mode")
-    poll_interval = st.slider("Poll interval (seconds)", 1, 10, 2, key="live_poll_interval")
+    live_mode = st.checkbox("Enable auto-recalc (event-driven)", value=False, key="live_mode")
     debounce_interval = st.slider("Debounce (seconds)", 1, 30, 3, key="live_debounce")
-    st.caption("Auto-recalc runs only when inputs or units change in the loaded table.")
+    st.caption("Uses Excel COM SheetChange events in bridge; no polling in UI.")
+    st.button("Refresh live status")
 
-# Live polling/recalc loop (best-effort, no extra dependency)
-if st.session_state.get("live_mode") and "agent" in st.session_state:
-    table = _read_loaded_table()
-    if table.get("success"):
-        current_fingerprint = _table_fingerprint(table)
-        last_fingerprint = st.session_state.live_last_fingerprint
-        now = time.time()
-
-        if last_fingerprint is None:
-            st.session_state.live_last_fingerprint = current_fingerprint
-            st.session_state.live_last_status = "Live mode armed"
-        elif current_fingerprint != last_fingerprint:
-            elapsed = now - st.session_state.live_last_recalc_ts
-            if elapsed >= st.session_state.live_debounce:
-                result = recalculate_excel_table()
-                st.session_state.live_last_result = result
-                st.session_state.live_last_recalc_ts = now
-                st.session_state.live_last_fingerprint = current_fingerprint
-                if result.get("success"):
-                    st.session_state.live_last_status = f"Auto-recalc OK ({time.strftime('%H:%M:%S')})"
-                else:
-                    st.session_state.live_last_status = f"Auto-recalc failed: {result.get('phase')}"
-            else:
-                st.session_state.live_last_status = f"Change detected; waiting debounce ({int(st.session_state.live_debounce - elapsed)}s)"
-        else:
-            st.session_state.live_last_status = "Watching for changes"
+# Start/stop bridge live watcher when checkbox state changes.
+if st.session_state.get("live_mode") and not st.session_state.get("live_bridge_enabled"):
+    context = LAST_TABLE_CONTEXT or {}
+    payload = {
+        "autoDetect": not bool(context.get("startRow") and context.get("headerRow")),
+        "startRow": context.get("startRow"),
+        "headerRow": context.get("headerRow"),
+        "sheetName": context.get("sheetName"),
+        "debounceSeconds": st.session_state.get("live_debounce", 3),
+    }
+    start_result = _bridge_post("/excel/live-mode/start", payload)
+    if start_result.get("success"):
+        st.session_state.live_bridge_enabled = True
+        st.session_state.live_last_status = "Live mode enabled"
     else:
-        st.session_state.live_last_status = f"Live mode waiting: {table.get('error')}"
+        st.session_state.live_bridge_enabled = False
+        st.session_state.live_last_status = f"Failed to enable live mode: {start_result.get('error')}"
+
+if not st.session_state.get("live_mode") and st.session_state.get("live_bridge_enabled"):
+    stop_result = _bridge_post("/excel/live-mode/stop", {})
+    if stop_result.get("success"):
+        st.session_state.live_bridge_enabled = False
+        st.session_state.live_last_status = "Live mode stopped"
+    else:
+        st.session_state.live_last_status = f"Failed to stop live mode: {stop_result.get('error')}"
+
+# Pull watcher status for display.
+status_result = _bridge_get("/excel/live-mode/status")
+if status_result.get("success"):
+    status = status_result.get("status", {})
+    st.session_state.live_status_raw = status
+    st.session_state.live_last_result = status.get("lastResult")
+    if status.get("lastError"):
+        st.session_state.live_last_status = f"Live error: {status.get('lastError')}"
+    elif status.get("running") and status.get("enabled"):
+        last_run = status.get("lastRecalcAt")
+        if last_run:
+            st.session_state.live_last_status = f"Watching changes (last recalc at {time.strftime('%H:%M:%S', time.localtime(last_run))})"
+        else:
+            st.session_state.live_last_status = "Watching changes"
 
 with st.expander("Live Mode Status", expanded=False):
     st.markdown(f"**Status:** {st.session_state.live_last_status}")
     if LAST_TABLE_CONTEXT:
         st.json({"tableContext": LAST_TABLE_CONTEXT})
+    if st.session_state.live_status_raw:
+        st.json({"watcherStatus": st.session_state.live_status_raw})
     if st.session_state.live_last_result:
         st.json({"lastResult": st.session_state.live_last_result})
 
@@ -151,8 +172,3 @@ if prompt := st.chat_input("Ask me to 'Calculate the values and write them back 
                 st.markdown(final_response)
             else:
                 st.markdown("*(Finished execution with no final text response)*")
-
-# Trigger next polling cycle
-if st.session_state.get("live_mode"):
-    time.sleep(st.session_state.live_poll_interval)
-    st.rerun()

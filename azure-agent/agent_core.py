@@ -283,8 +283,6 @@ def fetch_calcslive_metadata(article_id: str) -> dict:
         f"{CALCSLIVE_API_URL.rstrip('/')}/validate",
     ]
     params = {"articleId": article_id}
-    if CALCSLIVE_API_KEY:
-        params["apiKey"] = CALCSLIVE_API_KEY
 
     try:
         data = None
@@ -553,7 +551,6 @@ def calculate_with_calcslive(
     headers = {"Content-Type": "application/json"}
     if CALCSLIVE_API_KEY:
             headers["Authorization"] = f"Bearer {CALCSLIVE_API_KEY}"
-            headers["X-API-Key"] = CALCSLIVE_API_KEY
 
     run_candidates: list[tuple[str, dict[str, Any]]] = []
 
@@ -565,13 +562,12 @@ def calculate_with_calcslive(
         }
         if outputs:
             article_payload["outputs"] = outputs
-        if CALCSLIVE_API_KEY:
-            article_payload["apiKey"] = CALCSLIVE_API_KEY
         run_candidates.append((f"{CALCSLIVE_API_URL.rstrip('/')}/calculate", article_payload))
 
-    # Keep run-script as secondary/fallback for full PQ script execution.
+    # Script execution fallback (without article dependency).
     if pqs:
-        run_candidates.append((f"{CALCSLIVE_API_URL.rstrip('/')}/run-script", payload))
+        script_payload = dict(payload)
+        run_candidates.append((f"{CALCSLIVE_API_URL.rstrip('/')}/articles/uac-script/run", script_payload))
 
     failures: list[dict[str, Any]] = []
     _debug("Calc run candidates", [c[0] for c in run_candidates])

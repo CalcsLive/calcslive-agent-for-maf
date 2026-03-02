@@ -154,8 +154,8 @@ Expected:
 
 1. Enable **Live Mode** in sidebar.
 2. Change input value/unit or output unit in Excel.
-3. Wait poll + debounce interval.
+3. Wait debounce interval.
 
 Expected:
-- Live Mode status changes to auto-recalc success.
+- Live Mode status shows watcher activity and latest recalc state.
 - Outputs update without manual prompt.

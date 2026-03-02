@@ -20,6 +20,7 @@ from excel_api import (
     find_article_id,
     find_pq_table
 )
+from live_watcher import live_recalc_watcher
 
 VERSION = "0.2.0"
 
@@ -95,6 +96,14 @@ class SetupFromArticleRequest(BaseModel):
     includeHeaders: bool = True
     writeMetadata: bool = False
     articleMetadata: Optional[Dict[str, Any]] = None
+    sheetName: Optional[str] = None
+
+
+class LiveModeStartRequest(BaseModel):
+    autoDetect: bool = True
+    startRow: Optional[int] = None
+    headerRow: Optional[int] = None
+    debounceSeconds: float = 1.5
     sheetName: Optional[str] = None
 
 
@@ -261,6 +270,33 @@ def api_setup_from_article(request: SetupFromArticleRequest):
         raise HTTPException(status_code=503, detail=result.get("error"))
 
     return result
+
+
+@app.post("/excel/live-mode/start")
+def api_live_mode_start(request: LiveModeStartRequest):
+    """Start event-driven live recalculation watcher on Excel sheet changes."""
+    result = live_recalc_watcher.start(
+        auto_detect=request.autoDetect,
+        start_row=request.startRow,
+        header_row=request.headerRow,
+        sheet_name=request.sheetName,
+        debounce_seconds=request.debounceSeconds,
+    )
+    if not result.get("success"):
+        raise HTTPException(status_code=503, detail=result.get("error", "Failed to start live mode"))
+    return result
+
+
+@app.post("/excel/live-mode/stop")
+def api_live_mode_stop():
+    """Stop event-driven live recalculation watcher."""
+    return live_recalc_watcher.stop()
+
+
+@app.get("/excel/live-mode/status")
+def api_live_mode_status():
+    """Get current live recalculation watcher status and last run info."""
+    return {"success": True, "status": live_recalc_watcher.status()}
 
 
 # ============ Auto-Detection Endpoints (ArticleID-relative) ============
@@ -433,5 +469,8 @@ if __name__ == "__main__":
     print("  POST /excel/read-pq-table - Read PQ table (explicit rows)")
     print("  POST /excel/write-pq-values - Write values (explicit rows)")
     print("  POST /excel/setup-from-article - Setup PQ table from article")
+    print("  POST /excel/live-mode/start - Start event-driven auto-recalc watcher")
+    print("  POST /excel/live-mode/stop - Stop auto-recalc watcher")
+    print("  GET  /excel/live-mode/status - Get watcher status")
     print()
     uvicorn.run(app, host="127.0.0.1", port=8001)
