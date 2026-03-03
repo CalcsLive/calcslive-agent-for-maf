@@ -624,6 +624,74 @@ def calculate_with_calcslive(
     }
 
 
+def create_calcslive_article_from_script(
+    pqs: list,
+    title: str | None = None,
+    description: str | None = None,
+    access_level: str | None = None,
+    category: str | None = None,
+    tags: list[str] | None = None,
+    inputs: dict | None = None,
+    outputs: dict | None = None,
+) -> dict:
+    """Create a persistent CalcsLive article from PQ script definitions."""
+    if not pqs:
+        return {"success": False, "error": "pqs is required and cannot be empty"}
+
+    payload: dict[str, Any] = {
+        "pqs": pqs,
+        "inputs": inputs or {},
+        "outputs": outputs or {},
+    }
+    if title:
+        payload["title"] = title
+    if description:
+        payload["description"] = description
+    if access_level:
+        payload["accessLevel"] = access_level
+    if category:
+        payload["category"] = category
+    if tags:
+        payload["tags"] = tags
+
+    headers = {"Content-Type": "application/json"}
+    if CALCSLIVE_API_KEY:
+        headers["Authorization"] = f"Bearer {CALCSLIVE_API_KEY}"
+
+    create_url = f"{CALCSLIVE_API_URL.rstrip('/')}/articles/uac-script/create"
+    result = _post_json(create_url, payload, timeout=45.0, headers=headers)
+    if not result.get("success"):
+        return {
+            "success": False,
+            "error": result.get("error") or "Create article request failed",
+            "statusCode": result.get("statusCode"),
+            "details": result.get("details"),
+        }
+
+    data = result.get("data")
+    if isinstance(data, dict) and data.get("success") is False:
+        return {
+            "success": False,
+            "error": data.get("error") or "CalcsLive create article failed",
+            "details": data,
+        }
+
+    article = {}
+    if isinstance(data, dict):
+        article = data.get("data", {}).get("article", {}) if isinstance(data.get("data"), dict) else {}
+
+    return {
+        "success": True,
+        "data": data,
+        "article": {
+            "id": article.get("id"),
+            "title": article.get("title"),
+            "url": article.get("url"),
+            "accessLevel": article.get("accessLevel"),
+        },
+    }
+
+
 # ============ Agent Core Class ============
 
 class CalcsLiveAgent:
@@ -804,6 +872,40 @@ class CalcsLiveAgent:
                             "description": "Deterministic closed-loop recalc: read current Excel table, run CalcsLive calculation, and write outputs back",
                             "parameters": {"type": "object", "properties": {}, "required": []}
                     }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                            "name": "create_calcslive_article_from_script",
+                            "description": "Create a persistent CalcsLive article from PQ definitions and optional metadata",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "pqs": {
+                                            "type": "array",
+                                            "description": "List of PQ definitions with sym, unit, and either value (input) or expression (output)"
+                                    },
+                                    "title": {"type": "string", "description": "Optional article title"},
+                                    "description": {"type": "string", "description": "Optional article description"},
+                                    "accessLevel": {"type": "string", "description": "Optional visibility, usually public or private"},
+                                    "category": {"type": "string", "description": "Optional article category"},
+                                    "tags": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                            "description": "Optional list of tags"
+                                    },
+                                    "inputs": {
+                                            "type": "object",
+                                            "description": "Optional input overrides, e.g. {\"D\": {\"value\": 2, \"unit\": \"in\"}}"
+                                    },
+                                    "outputs": {
+                                            "type": "object",
+                                            "description": "Optional output unit preferences, e.g. {\"V\": {\"unit\": \"L\"}}"
+                                    }
+                                },
+                                "required": ["pqs"]
+                            }
+                    }
                 }
             ]
 
@@ -815,6 +917,7 @@ Your workflow:
 3. Read the PQ (Physical Quantity) table from Excel (`read_excel_pq_table`) to get current inputs and output definitions.
 4. Use CalcsLive (`calculate_with_calcslive`) to calculate the outputs with proper unit conversions.
 5. Write the calculated results back to Excel (`write_excel_results`).
+6. If the user wants a brand-new calculation/article, define a PQ script and call `create_calcslive_article_from_script`.
 
 Key concepts:
 - PQ = Physical Quantity (value + unit, e.g., "2 inches", "3 cm")
@@ -853,6 +956,17 @@ Always explain what you're doing. Show your tool results to the user as they hap
                     func_args.get("pqs", []),
                     func_args.get("inputs", {}),
                     func_args.get("outputs", {}),
+                )
+            elif func_name == "create_calcslive_article_from_script":
+                return create_calcslive_article_from_script(
+                    pqs=func_args.get("pqs", []),
+                    title=func_args.get("title"),
+                    description=func_args.get("description"),
+                    access_level=func_args.get("accessLevel") or func_args.get("access_level"),
+                    category=func_args.get("category"),
+                    tags=func_args.get("tags"),
+                    inputs=func_args.get("inputs", {}),
+                    outputs=func_args.get("outputs", {}),
                 )
             else:
                 return {"error": f"Unknown function: {func_name}"}

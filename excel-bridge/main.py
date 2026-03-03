@@ -105,6 +105,8 @@ class LiveModeStartRequest(BaseModel):
     headerRow: Optional[int] = None
     debounceSeconds: float = 1.5
     sheetName: Optional[str] = None
+    authToken: Optional[str] = None
+    apiKey: Optional[str] = None
 
 
 # ============ Endpoints ============
@@ -275,12 +277,14 @@ def api_setup_from_article(request: SetupFromArticleRequest):
 @app.post("/excel/live-mode/start")
 def api_live_mode_start(request: LiveModeStartRequest):
     """Start event-driven live recalculation watcher on Excel sheet changes."""
+    token = request.authToken or request.apiKey
     result = live_recalc_watcher.start(
         auto_detect=request.autoDetect,
         start_row=request.startRow,
         header_row=request.headerRow,
         sheet_name=request.sheetName,
         debounce_seconds=request.debounceSeconds,
+        api_key=token,
     )
     if not result.get("success"):
         raise HTTPException(status_code=503, detail=result.get("error", "Failed to start live mode"))

@@ -1,5 +1,5 @@
 import streamlit as st
-from agent_core import CalcsLiveAgent, EXCEL_BRIDGE_URL, LAST_TABLE_CONTEXT
+from agent_core import CALCSLIVE_API_KEY, CalcsLiveAgent, EXCEL_BRIDGE_URL, LAST_TABLE_CONTEXT
 import time
 import httpx
 
@@ -86,6 +86,8 @@ if st.session_state.get("live_mode") and not st.session_state.get("live_bridge_e
         "sheetName": context.get("sheetName"),
         "debounceSeconds": st.session_state.get("live_debounce", 3),
     }
+    if CALCSLIVE_API_KEY:
+        payload["authToken"] = CALCSLIVE_API_KEY
     start_result = _bridge_post("/excel/live-mode/start", payload)
     if start_result.get("success"):
         st.session_state.live_bridge_enabled = True
