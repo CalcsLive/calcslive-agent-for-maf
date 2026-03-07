@@ -77,6 +77,14 @@ The Streamlit UI will open at `http://localhost:8501`. Prompt the agent:
 
 Watch as the Azure Agent sequentially hits the `get_excel_health`, `read_excel_pq_table`, `calculate_with_calcslive`, and `write_excel_results` tools—updating your live Excel document in seconds!
 
+## ☁️ Cloud-Only Beta (No Excel Setup)
+
+If you want testers to try article creation without local Excel/COM setup, deploy the cloud Streamlit app first.
+
+- Guide: `docs/cloud-beta-rollout.md`
+- App entrypoint: `azure-agent/app_cloud.py`
+- Repeatable deployment script: `deploy/deploy-cloud-beta.ps1`
+
 ---
 
 ## 📁 Repository Structure

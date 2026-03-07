@@ -1,0 +1,12 @@
+{
+  "subscriptionId": "5286a708-19d0-48d6-8761-cead5d1eea7a",
+  "resourceGroup": "rg-calcslive-beta",
+  "location": "eastus",
+  "planName": "asp-calcslive-beta",
+  "appName": "calcslive-beta-26009-01",
+  "runtime": "PYTHON|3.11",
+  "sku": "B1",
+  "projectPath": "azure-agent",
+  "calcsliveApiUrl": "https://calcslive.com/api/v1",
+  "startupCommand": "bash -c 'streamlit run app_cloud.py --server.address 0.0.0.0 --server.port ${PORT:-8000} --server.headless true'"
+}
