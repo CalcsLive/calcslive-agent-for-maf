@@ -68,6 +68,12 @@ From repo root:
 pwsh .\deploy\deploy-cloud-beta.ps1
 ```
 
+If App Service `B1` quota is blocked, use Azure Container Apps instead:
+
+```powershell
+pwsh .\deploy\deploy-cloud-beta-aca.ps1
+```
+
 What this script does:
 
 1. Sets Azure subscription from config.
@@ -102,6 +108,12 @@ You only need:
 
 ```powershell
 pwsh .\deploy\deploy-cloud-beta.ps1
+```
+
+For Container Apps path:
+
+```powershell
+pwsh .\deploy\deploy-cloud-beta-aca.ps1
 ```
 
 No need to retype resource create commands.
@@ -142,10 +154,51 @@ Cause:
 What to do:
 1. Request quota increase for Basic/App Service compute in your subscription + region.
 2. Or use another subscription/region with available quota.
-3. Or switch to a different Azure hosting model (for example Azure Container Apps consumption).
+3. Or switch to a different Azure hosting model (Azure Container Apps consumption).
 
 Important:
 - This error is **hosting compute quota**, not LLM token quota.
+
+### E) Azure Container Apps fallback (recommended when B1 quota is zero)
+
+Files:
+- `deploy/config.aca.dev.json`
+- `deploy/deploy-cloud-beta-aca.ps1`
+
+Steps:
+1. Edit `deploy/config.aca.dev.json` and set a unique `appName`.
+2. Set local secret env var:
+
+```powershell
+$env:CALCSLIVE_API_KEY = "<your-calcslive-api-key>"
+```
+
+3. Deploy:
+
+```powershell
+pwsh .\deploy\deploy-cloud-beta-aca.ps1
+```
+
+Notes:
+- This script deploys from `azure-agent` source path.
+- `azure-agent/Dockerfile` is included for deterministic startup.
+- Container Apps often works where App Service Basic quota is unavailable.
+
+### F) `az containerapp env create` fails
+
+Common causes:
+- Azure resource providers not registered (`Microsoft.App`, `Microsoft.OperationalInsights`, etc.)
+- Region capacity or policy constraints
+
+What to do:
+1. Use the updated script (it auto-registers required providers).
+2. If it still fails, run the failing command with debug to see exact reason:
+
+```powershell
+az containerapp env create --name <env-name> --resource-group <rg> --location <region> --debug
+```
+
+3. Try another region in `deploy/config.aca.dev.json` (for example `eastus2`, `centralus`, `westus2`).
 
 ### B) `'3.11' is not recognized as a command`
 

@@ -1,0 +1,15 @@
+{
+  "subscriptionId": "5286a708-19d0-48d6-8761-cead5d1eea7a",
+  "resourceGroup": "rg-calcslive-beta",
+  "location": "eastus",
+  "environmentName": "cae-calcslive-beta",
+  "appName": "ca-calcslive-beta-26009-01",
+  "projectPath": "azure-agent",
+  "targetPort": 8000,
+  "ingress": "external",
+  "minReplicas": 0,
+  "maxReplicas": 1,
+  "cpu": 0.5,
+  "memory": "1.0Gi",
+  "calcsliveApiUrl": "https://calcslive.com/api/v1"
+}

@@ -84,6 +84,7 @@ If you want testers to try article creation without local Excel/COM setup, deplo
 - Guide: `docs/cloud-beta-rollout.md`
 - App entrypoint: `azure-agent/app_cloud.py`
 - Repeatable deployment script: `deploy/deploy-cloud-beta.ps1`
+- App Service quota fallback: `deploy/deploy-cloud-beta-aca.ps1` (Azure Container Apps)
 
 ---
 
