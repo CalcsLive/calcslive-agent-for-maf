@@ -2,6 +2,7 @@
 
 # Build output
 dist/
+deploy/.azureext
 
 # Environment variables
 .env
@@ -12,6 +13,7 @@ dist/
 # Python
 __pycache__/
 *.pyc
+excel-bridge/__pycache__
 
 # Logs
 *.log
