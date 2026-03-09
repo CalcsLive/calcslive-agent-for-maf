@@ -6,6 +6,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+
 function Invoke-Az {
     param(
         [Parameter(Mandatory = $true)]
@@ -40,11 +42,64 @@ function Ensure-EnvVar {
         [Parameter(Mandatory = $true)]
         [string]$Name
     )
-    $value = [Environment]::GetEnvironmentVariable($Name)
+
+    $value = [Environment]::GetEnvironmentVariable($Name, "Process")
     if ([string]::IsNullOrWhiteSpace($value)) {
-        throw "Missing required environment variable: $Name"
+        Write-Host "Missing required environment variable: $Name" -ForegroundColor Yellow
+        Write-Host "Set it once in current shell, example:" -ForegroundColor Yellow
+        Write-Host "  `$env:$Name = \"<your-secret>\"" -ForegroundColor Yellow
+        $value = Read-Host "Enter value for $Name"
+        if ([string]::IsNullOrWhiteSpace($value)) {
+            throw "Missing required environment variable: $Name"
+        }
+        [Environment]::SetEnvironmentVariable($Name, $value, "Process")
     }
     return $value
+}
+
+function Import-DotEnv {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Paths
+    )
+
+    foreach ($path in $Paths) {
+        if (-not (Test-Path $path)) {
+            continue
+        }
+
+        Write-Host "Loading environment values from $path"
+        $lines = Get-Content $path
+        foreach ($line in $lines) {
+            $trimmed = $line.Trim()
+            if ([string]::IsNullOrWhiteSpace($trimmed)) {
+                continue
+            }
+            if ($trimmed.StartsWith("#")) {
+                continue
+            }
+            if ($trimmed.StartsWith("export ")) {
+                $trimmed = $trimmed.Substring(7).Trim()
+            }
+
+            $match = [regex]::Match($trimmed, '^(?<key>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?<value>.*)$')
+            if (-not $match.Success) {
+                continue
+            }
+
+            $key = $match.Groups["key"].Value
+            $value = $match.Groups["value"].Value.Trim()
+            if (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'"))) {
+                if ($value.Length -ge 2) {
+                    $value = $value.Substring(1, $value.Length - 2)
+                }
+            }
+
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($key, "Process"))) {
+                [Environment]::SetEnvironmentVariable($key, $value, "Process")
+            }
+        }
+    }
 }
 
 function New-DeployZip {
@@ -104,6 +159,11 @@ function New-DeployZip {
 
 Write-Host "Loading config from $ConfigPath..."
 $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+
+Import-DotEnv -Paths @(
+    (Join-Path $repoRoot ".env"),
+    (Join-Path $repoRoot "azure-agent\.env")
+)
 
 if (-not (Test-AzLogin)) {
     throw "Azure CLI is not logged in. Run: az login"

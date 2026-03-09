@@ -60,6 +60,11 @@ $env:AZURE_AI_INFERENCE_KEY = "<your-key>"
 $env:AZURE_AI_INFERENCE_MODEL = "gpt-4.1-mini"
 ```
 
+Convenience option for hackathon:
+- Put secrets in local `.env` (repo root) or `azure-agent/.env`.
+- Deploy scripts automatically load those files if present.
+- If `CALCSLIVE_API_KEY` is still missing, scripts prompt interactively.
+
 ## 5) Run deployment script
 
 From repo root:
