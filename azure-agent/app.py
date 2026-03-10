@@ -1,5 +1,6 @@
 import streamlit as st
-from agent_core import CALCSLIVE_API_KEY, CalcsLiveAgent, EXCEL_BRIDGE_URL, LAST_TABLE_CONTEXT
+from agent_core import CalcsLiveAgent, EXCEL_BRIDGE_URL, LAST_TABLE_CONTEXT
+from calcslive_tools import CALCSLIVE_API_KEY
 import time
 import httpx
 

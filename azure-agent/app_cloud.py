@@ -3,11 +3,8 @@ from typing import Any
 
 import streamlit as st
 
-from agent_core import (
-    CALCSLIVE_API_URL,
-    CalcsLiveAgent,
-    create_calcslive_article_from_script,
-)
+from agent_core import CalcsLiveAgent
+from calcslive_tools import CALCSLIVE_API_URL, create_calcslive_article_from_script
 
 
 CLOUD_SYSTEM_MESSAGE = """You are the CalcsLive Cloud Beta assistant.
