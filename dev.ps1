@@ -6,7 +6,10 @@ param(
     [string]$ConfigPath = ".\deploy\config.aca.dev.json",
 
     [Parameter(Mandatory = $false)]
-    [switch]$SkipCodeDeploy
+    [switch]$SkipCodeDeploy,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$UseLocalCalcsLiveApi
 )
 
 Set-StrictMode -Version Latest
@@ -100,6 +103,12 @@ function Start-Streamlit {
         throw "Streamlit app not found: $AppPath"
     }
 
+    if ($UseLocalCalcsLiveApi) {
+        $localApiUrl = "http://localhost:3000/api/v1"
+        [Environment]::SetEnvironmentVariable("CALCSLIVE_API_URL", $localApiUrl, "Process")
+        Write-Host "Using local CalcsLive API: $localApiUrl" -ForegroundColor Yellow
+    }
+
     Set-Location $scriptRoot
     & $python -m streamlit run $AppPath
 }
@@ -151,9 +160,11 @@ function Show-Help {
     Write-Host "Options:"
     Write-Host "  -ConfigPath <path>  Deploy config path (used by 'deploy')."
     Write-Host "  -SkipCodeDeploy     Skip code package deploy for App Service command only." 
+    Write-Host "  -UseLocalCalcsLiveApi  Force Streamlit app to use http://localhost:3000/api/v1 for local API testing."
     Write-Host "  (Deploy scripts auto-load .env or azure-agent/.env and prompt for missing CALCSLIVE_API_KEY.)"
     Write-Host "`nExamples:"
     Write-Host "  .\dev.ps1 local"
+    Write-Host "  .\dev.ps1 cloud -UseLocalCalcsLiveApi"
     Write-Host "  .\dev.ps1 deploy -ConfigPath .\deploy\config.aca.dev.json"
     Write-Host "  .\dev.ps1 deploy-appservice -SkipCodeDeploy"
 }

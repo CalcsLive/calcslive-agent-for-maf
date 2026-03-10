@@ -2,7 +2,7 @@ import os
 import json
 import re
 from typing import Any, Dict, List, Tuple
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, quote
 import httpx
 from dotenv import load_dotenv
 
@@ -176,6 +176,43 @@ def _extract_calc_outputs(calc_result: dict) -> dict:
         return calc["outputs"]
 
     return {}
+
+
+def _extract_script_payload(data: dict) -> dict:
+    """Extract normalized payload for script run/create responses."""
+    if not isinstance(data, dict):
+        return {}
+
+    nested = data.get("data")
+    if isinstance(nested, dict):
+        return nested
+
+    return data
+
+
+def _normalize_script_result(data: dict) -> dict:
+    """Normalize script run/create payloads for agent/tool consumption."""
+    payload = _extract_script_payload(data)
+    calculation = payload.get("calculation") if isinstance(payload.get("calculation"), dict) else {}
+    human_readable = payload.get("humanReadable")
+    warnings = payload.get("warnings") if isinstance(payload.get("warnings"), list) else []
+    category_metadata = payload.get("categoryMetadata") if isinstance(payload.get("categoryMetadata"), dict) else {}
+
+    normalized: dict[str, Any] = {
+        "calculation": calculation,
+        "inputs": calculation.get("inputs", {}) if isinstance(calculation, dict) else {},
+        "outputs": calculation.get("outputs", {}) if isinstance(calculation, dict) else {},
+        "warnings": warnings,
+        "categoryMetadata": category_metadata,
+        "humanReadable": human_readable,
+        "raw": payload,
+    }
+
+    article = payload.get("article")
+    if isinstance(article, dict):
+        normalized["article"] = article
+
+    return normalized
 
 
 # ============ Excel Bridge Functions ============
@@ -624,6 +661,50 @@ def calculate_with_calcslive(
     }
 
 
+def run_calcslive_script(
+    pqs: list,
+    inputs: dict | None = None,
+    outputs: dict | None = None,
+) -> dict:
+    """Run stateless PQ script calculation with normalized MCP-like response data."""
+    if not pqs:
+        return {"success": False, "error": "pqs is required and cannot be empty"}
+
+    payload: dict[str, Any] = {
+        "pqs": pqs,
+        "inputs": inputs or {},
+        "outputs": outputs or {},
+    }
+
+    headers = {"Content-Type": "application/json"}
+    if CALCSLIVE_API_KEY:
+        headers["Authorization"] = f"Bearer {CALCSLIVE_API_KEY}"
+
+    run_url = f"{CALCSLIVE_API_URL.rstrip('/')}/articles/uac-script/run"
+    result = _post_json(run_url, payload, timeout=45.0, headers=headers)
+    if not result.get("success"):
+        return {
+            "success": False,
+            "error": result.get("error") or "Run script request failed",
+            "statusCode": result.get("statusCode"),
+            "details": result.get("details"),
+        }
+
+    data = result.get("data")
+    if isinstance(data, dict) and data.get("success") is False:
+        return {
+            "success": False,
+            "error": (data.get("error") or {}).get("message") if isinstance(data.get("error"), dict) else data.get("error") or "CalcsLive run script failed",
+            "details": data,
+        }
+
+    normalized = _normalize_script_result(data)
+    return {
+        "success": True,
+        **normalized,
+    }
+
+
 def create_calcslive_article_from_script(
     pqs: list,
     title: str | None = None,
@@ -676,19 +757,117 @@ def create_calcslive_article_from_script(
             "details": data,
         }
 
-    article = {}
-    if isinstance(data, dict):
-        article = data.get("data", {}).get("article", {}) if isinstance(data.get("data"), dict) else {}
+    normalized = _normalize_script_result(data)
+    article = normalized.get("article", {}) if isinstance(normalized.get("article"), dict) else {}
 
     return {
         "success": True,
         "data": data,
+        **normalized,
         "article": {
             "id": article.get("id"),
             "title": article.get("title"),
             "url": article.get("url"),
             "accessLevel": article.get("accessLevel"),
+            "createdAt": article.get("createdAt"),
         },
+    }
+
+
+def discover_calcslive_units(
+    search: str | None = None,
+    category: str | None = None,
+    limit: int = 100,
+) -> dict:
+    """Discover units and categories from CalcsLive units API."""
+    headers: dict[str, str] = {}
+    if CALCSLIVE_API_KEY:
+        headers["Authorization"] = f"Bearer {CALCSLIVE_API_KEY}"
+
+    params: dict[str, Any] = {"limit": limit}
+    if search:
+        params["search"] = search
+    if category:
+        params["category"] = category
+
+    try:
+        with httpx.Client(timeout=20.0) as client:
+            response = client.get(f"{CALCSLIVE_API_URL.rstrip('/')}/units", params=params, headers=headers)
+
+        if response.status_code >= 400:
+            try:
+                error_body = response.json()
+            except Exception:
+                error_body = response.text
+            return {
+                "success": False,
+                "statusCode": response.status_code,
+                "error": "Units discovery request failed",
+                "details": error_body,
+            }
+
+        data = response.json()
+    except httpx.ConnectError:
+        return {"success": False, "error": "Cannot connect to CalcsLive API"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+    payload = data.get("data", {}) if isinstance(data, dict) else {}
+    return {
+        "success": True,
+        "units": payload.get("units", []),
+        "categories": payload.get("categories", []),
+        "meta": data.get("meta", {}) if isinstance(data, dict) else {},
+        "raw": data,
+    }
+
+
+def resolve_calcslive_unit_alias(alias: str, category_hint: str | None = None) -> dict:
+    """Resolve ambiguous or aliased unit names via CalcsLive units API."""
+    if not alias:
+        return {"success": False, "error": "alias is required"}
+
+    headers: dict[str, str] = {}
+    if CALCSLIVE_API_KEY:
+        headers["Authorization"] = f"Bearer {CALCSLIVE_API_KEY}"
+
+    params: dict[str, Any] = {}
+    if category_hint:
+        params["categoryHint"] = category_hint
+
+    try:
+        with httpx.Client(timeout=20.0) as client:
+            response = client.get(
+                f"{CALCSLIVE_API_URL.rstrip('/')}/units/resolve/{quote(alias, safe='')}",
+                params=params,
+                headers=headers,
+            )
+
+        if response.status_code >= 400:
+            try:
+                error_body = response.json()
+            except Exception:
+                error_body = response.text
+            return {
+                "success": False,
+                "statusCode": response.status_code,
+                "error": "Unit alias resolution request failed",
+                "details": error_body,
+            }
+
+        data = response.json()
+    except httpx.ConnectError:
+        return {"success": False, "error": "Cannot connect to CalcsLive API"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+    return {
+        "success": True,
+        "alias": alias,
+        "isAmbiguous": bool(data.get("isAmbiguous")) if isinstance(data, dict) else False,
+        "resolution": data.get("resolution") if isinstance(data, dict) else None,
+        "matches": data.get("matches", []) if isinstance(data, dict) else [],
+        "raw": data,
     }
 
 
@@ -810,6 +989,31 @@ class CalcsLiveAgent:
                 {
                     "type": "function",
                     "function": {
+                            "name": "run_calcslive_script",
+                            "description": "Run a stateless PQ script calculation with category-aware validation, warnings, and human-readable output",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "pqs": {
+                                            "type": "array",
+                                            "description": "List of PQ definitions with sym, unit, optional categoryId, value for inputs, and expression for outputs"
+                                    },
+                                    "inputs": {
+                                            "type": "object",
+                                            "description": "Optional input overrides, e.g. {\"n\": {\"value\": 1500, \"unit\": \"rev/min\"}}"
+                                    },
+                                    "outputs": {
+                                            "type": "object",
+                                            "description": "Optional output unit preferences, e.g. {\"P\": {\"unit\": \"kW\"}}"
+                                    }
+                                },
+                                "required": ["pqs"]
+                            }
+                    }
+                },
+                {
+                    "type": "function",
+                    "function": {
                             "name": "fetch_calcslive_metadata",
                             "description": "Fetch metadata and PQ definitions for an existing CalcsLive article using article ID",
                             "parameters": {
@@ -821,6 +1025,37 @@ class CalcsLiveAgent:
                                     }
                                 },
                                 "required": ["article_id"]
+                            }
+                    }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                            "name": "discover_calcslive_units",
+                            "description": "Discover available CalcsLive units and categories, optionally filtered by search term or category",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "search": {"type": "string", "description": "Optional search term such as pressure, rpm, meter, or lb"},
+                                    "category": {"type": "string", "description": "Optional category ID filter such as 220 or 115"},
+                                    "limit": {"type": "integer", "description": "Optional result limit", "default": 100}
+                                },
+                                "required": []
+                            }
+                    }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                            "name": "resolve_calcslive_unit_alias",
+                            "description": "Resolve a unit alias and detect ambiguity such as rpm, lb, or oz; optionally disambiguate with categoryHint",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "alias": {"type": "string", "description": "Unit alias to resolve, for example rpm, lb, rev/min, or psi"},
+                                    "categoryHint": {"type": "string", "description": "Optional category ID to disambiguate, for example 115 or 130"}
+                                },
+                                "required": ["alias"]
                             }
                     }
                 },
@@ -912,12 +1147,17 @@ class CalcsLiveAgent:
             self.system_message = """You are the CalcsLive Agent, helping users perform unit-aware calculations in Excel.
 
 Your workflow:
-1. First, check Excel health to ensure connection
+1. First, check Excel health to ensure connection when the task involves Excel.
 2. If the user asks to "Load an Article", use `load_article_to_excel` to build the physical table structure in Excel using configurable anchor parameters.
 3. Read the PQ (Physical Quantity) table from Excel (`read_excel_pq_table`) to get current inputs and output definitions.
 4. Use CalcsLive (`calculate_with_calcslive`) to calculate the outputs with proper unit conversions.
 5. Write the calculated results back to Excel (`write_excel_results`).
-6. If the user wants a brand-new calculation/article, define a PQ script and call `create_calcslive_article_from_script`.
+6. If the user wants a brand-new calculation/article, follow the MCP-style flow:
+   - discover units or resolve aliases first when units may be ambiguous,
+   - prefer category-first unit mapping and include `categoryId` where useful,
+   - keep formulas unit-agnostic (pure physics, no hard-coded conversion factors),
+   - test the script with `run_calcslive_script`, review warnings/results,
+   - only then persist with `create_calcslive_article_from_script`.
 
 Key concepts:
 - PQ = Physical Quantity (value + unit, e.g., "2 inches", "3 cm")
@@ -925,6 +1165,8 @@ Key concepts:
 - Outputs = PQs with expressions that need calculation. These are highlighted Green in Excel.
 - Data-Driven Closed-Loop: The user types numbers/units into Yellow cells then asks to "Update" or "Recalculate"; call `recalculate_excel_table` for deterministic full-cycle execution.
 - Do not mention or require `=CalcsLive(...)` formulas in Excel cells; expression text in the Expression column is enough.
+- Use `discover_calcslive_units` and `resolve_calcslive_unit_alias` proactively when units like rpm, lb, oz, ton, or gallon might be ambiguous.
+- Match MCP behavior: prefer `run_calcslive_script` before `create_calcslive_article_from_script` unless the user explicitly asks to persist immediately.
 
 Always explain what you're doing. Show your tool results to the user as they happen if it takes multiple steps.
 """
@@ -956,6 +1198,23 @@ Always explain what you're doing. Show your tool results to the user as they hap
                     func_args.get("pqs", []),
                     func_args.get("inputs", {}),
                     func_args.get("outputs", {}),
+                )
+            elif func_name == "run_calcslive_script":
+                return run_calcslive_script(
+                    pqs=func_args.get("pqs", []),
+                    inputs=func_args.get("inputs", {}),
+                    outputs=func_args.get("outputs", {}),
+                )
+            elif func_name == "discover_calcslive_units":
+                return discover_calcslive_units(
+                    search=func_args.get("search"),
+                    category=func_args.get("category"),
+                    limit=func_args.get("limit", 100),
+                )
+            elif func_name == "resolve_calcslive_unit_alias":
+                return resolve_calcslive_unit_alias(
+                    alias=func_args.get("alias", ""),
+                    category_hint=func_args.get("categoryHint") or func_args.get("category_hint"),
                 )
             elif func_name == "create_calcslive_article_from_script":
                 return create_calcslive_article_from_script(
