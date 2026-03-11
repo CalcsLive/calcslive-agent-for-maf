@@ -1,6 +1,7 @@
 import streamlit as st
 from agent_core import CalcsLiveAgent, EXCEL_BRIDGE_URL, LAST_TABLE_CONTEXT, load_article_to_excel
 from calcslive_tools import CALCSLIVE_API_KEY
+from app_shared import calc_table_rows, review_summary, review_table_title, tool_arguments_from_messages
 import time
 import httpx
 import json
@@ -36,73 +37,6 @@ LOCAL_GREETING = (
     "Hi! I can help you design a CalcsLive calculation, review it, persist it, "
     "load it into Excel, and keep Excel outputs updated."
 )
-
-
-def _tool_arguments_from_messages(messages: list[dict], tool_name: str) -> dict | None:
-    for message in reversed(messages):
-        if message.get("role") != "assistant":
-            continue
-        for tool_call in reversed(message.get("tool_calls", []) or []):
-            fn = tool_call.get("function", {})
-            if fn.get("name") != tool_name:
-                continue
-            try:
-                return json.loads(fn.get("arguments") or "{}")
-            except json.JSONDecodeError:
-                return None
-    return None
-
-
-def _review_summary(result: dict) -> dict:
-    return {
-        "warnings": result.get("warnings") or [],
-        "categoryMetadata": result.get("categoryMetadata") or {},
-        "outputs": result.get("outputs") or {},
-        "inputs": result.get("inputs") or {},
-        "humanReadable": result.get("humanReadable") or {},
-    }
-
-
-def _calc_table_rows(result: dict) -> list[dict]:
-    rows: list[dict] = []
-    inputs = result.get("inputs") or {}
-    outputs = result.get("outputs") or {}
-
-    for sym, pq in inputs.items():
-        if not isinstance(pq, dict):
-            continue
-        rows.append(
-            {
-                "Kind": "Input",
-                "Description": pq.get("description") or sym,
-                "Symbol": sym,
-                "Expression": "",
-                "Value": pq.get("value"),
-                "Unit": pq.get("unit") or "",
-            }
-        )
-
-    for sym, pq in outputs.items():
-        if not isinstance(pq, dict):
-            continue
-        rows.append(
-            {
-                "Kind": "Output",
-                "Description": pq.get("description") or sym,
-                "Symbol": sym,
-                "Expression": pq.get("expression") or "",
-                "Value": pq.get("value"),
-                "Unit": pq.get("unit") or "",
-            }
-        )
-
-    return rows
-
-
-def _review_table_title() -> str:
-    return st.session_state.get("review_table_title") or "Calculation Table"
-
-
 def _bridge_url() -> str:
     return EXCEL_BRIDGE_URL
 
@@ -250,16 +184,16 @@ with st.expander("Live Mode Status", expanded=False):
 
 with st.expander("Reviewed Script", expanded=bool(st.session_state.review_result)):
     if st.session_state.review_result:
-        summary = _review_summary(st.session_state.review_result)
+        summary = review_summary(st.session_state.review_result)
         human_readable = summary["humanReadable"]
         if isinstance(human_readable, dict) and human_readable.get("summary"):
             st.markdown(f"**Summary:** {human_readable.get('summary')}")
         if summary["warnings"]:
             st.warning("Warnings were returned. Review before persisting or loading into Excel.")
             st.json(summary["warnings"])
-        table_rows = _calc_table_rows(st.session_state.review_result)
+        table_rows = calc_table_rows(st.session_state.review_result)
         if table_rows:
-            st.markdown(f"**{_review_table_title()}**")
+            st.markdown(f"**{review_table_title(st.session_state)}**")
             st.table(table_rows)
         if summary["categoryMetadata"]:
             with st.expander("Category Metadata", expanded=False):
@@ -343,7 +277,7 @@ if st.session_state.last_created_article:
         if human_readable.get("summary"):
             st.markdown(f"**Summary:** {human_readable.get('summary')}")
 
-        created_rows = _calc_table_rows(created)
+        created_rows = calc_table_rows(created)
         if created_rows:
             st.table(created_rows)
 
@@ -391,7 +325,7 @@ if prompt := st.chat_input("Ask me to 'Calculate the values and write them back 
                     if tool_name == "write_excel_results" and result.get("success"):
                          tool_output += f"  - Values updated: {result.get('valuesWritten', 0)}\n"
                     if tool_name == "run_calcslive_script" and result.get("success"):
-                        tool_args = _tool_arguments_from_messages(updated_messages, "run_calcslive_script")
+                        tool_args = tool_arguments_from_messages(updated_messages, "run_calcslive_script")
                         if tool_args:
                             st.session_state.review_candidate = tool_args
                             st.session_state.review_result = result

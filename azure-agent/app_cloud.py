@@ -3,6 +3,7 @@ from typing import Any
 
 import streamlit as st
 
+from app_shared import calc_table_rows, review_summary, review_table_title, tool_arguments_from_messages
 from agent_core import CalcsLiveAgent
 from calcslive_tools import CALCSLIVE_API_URL, create_calcslive_article_from_script
 
@@ -26,77 +27,6 @@ Rules:
 - If the user asks to save/persist/create immediately, you may create directly.
 - Otherwise default to review-first behavior.
 """
-
-
-def _tool_arguments_from_messages(messages: list[dict[str, Any]], tool_name: str) -> dict[str, Any] | None:
-    for message in reversed(messages):
-        if message.get("role") != "assistant":
-            continue
-        for tool_call in reversed(message.get("tool_calls", []) or []):
-            fn = tool_call.get("function", {})
-            if fn.get("name") != tool_name:
-                continue
-            try:
-                return json.loads(fn.get("arguments") or "{}")
-            except json.JSONDecodeError:
-                return None
-    return None
-
-
-def _review_summary(result: dict[str, Any]) -> dict[str, Any]:
-    warnings = result.get("warnings") or []
-    category_metadata = result.get("categoryMetadata") or {}
-    outputs = result.get("outputs") or {}
-    human_readable = result.get("humanReadable") or {}
-    return {
-        "warnings": warnings,
-        "categoryMetadata": category_metadata,
-        "outputs": outputs,
-        "inputs": result.get("inputs") or {},
-        "humanReadable": human_readable,
-    }
-
-
-def _calc_table_rows(result: dict[str, Any]) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    inputs = result.get("inputs") or {}
-    outputs = result.get("outputs") or {}
-
-    for sym, pq in inputs.items():
-        if not isinstance(pq, dict):
-            continue
-        rows.append(
-            {
-                "Kind": "Input",
-                "Description": pq.get("description") or sym,
-                "Symbol": sym,
-                "Expression": "",
-                "Value": pq.get("value"),
-                "Unit": pq.get("unit") or "",
-            }
-        )
-
-    for sym, pq in outputs.items():
-        if not isinstance(pq, dict):
-            continue
-        rows.append(
-            {
-                "Kind": "Output",
-                "Description": pq.get("description") or sym,
-                "Symbol": sym,
-                "Expression": pq.get("expression") or "",
-                "Value": pq.get("value"),
-                "Unit": pq.get("unit") or "",
-            }
-        )
-
-    return rows
-
-
-def _review_table_title() -> str:
-    return st.session_state.get("review_table_title") or "Calculation Table"
-
-
 st.set_page_config(page_title="CalcsLive Cloud Beta", layout="wide")
 
 st.title("CalcsLive Cloud Beta")
@@ -158,16 +88,16 @@ for message in st.session_state.cloud_messages:
 
 with st.expander("Reviewed Script", expanded=bool(st.session_state.review_result)):
     if st.session_state.review_result:
-        summary = _review_summary(st.session_state.review_result)
+        summary = review_summary(st.session_state.review_result)
         hr = summary["humanReadable"]
         if isinstance(hr, dict) and hr.get("summary"):
             st.markdown(f"**Summary:** {hr.get('summary')}")
         if summary["warnings"]:
             st.warning("Warnings were returned. Review them before saving.")
             st.json(summary["warnings"])
-        table_rows = _calc_table_rows(st.session_state.review_result)
+        table_rows = calc_table_rows(st.session_state.review_result)
         if table_rows:
-            st.markdown(f"**{_review_table_title()}**")
+            st.markdown(f"**{review_table_title(st.session_state)}**")
             st.table(table_rows)
         if summary["categoryMetadata"]:
             with st.expander("Category Metadata", expanded=False):
@@ -233,7 +163,7 @@ if st.session_state.last_created_article:
         if human_readable.get("summary"):
             st.markdown(f"**Summary:** {human_readable.get('summary')}")
 
-        created_rows = _calc_table_rows(created)
+        created_rows = calc_table_rows(created)
         if created_rows:
             st.table(created_rows)
 
@@ -262,7 +192,7 @@ if prompt := st.chat_input("Ask to run or create a calculation script..."):
                     st.markdown(f"- `{tool_name}`: {success}")
 
                     if tool_name == "run_calcslive_script" and result.get("success"):
-                        tool_args = _tool_arguments_from_messages(updated_messages, "run_calcslive_script")
+                        tool_args = tool_arguments_from_messages(updated_messages, "run_calcslive_script")
                         if tool_args:
                             st.session_state.review_candidate = tool_args
                             st.session_state.review_result = result
