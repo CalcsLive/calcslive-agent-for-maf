@@ -18,7 +18,8 @@ from excel_api import (
     write_pq_results,
     setup_pq_table_from_article,
     find_article_id,
-    find_pq_table
+    find_pq_table,
+    detect_pq_table,
 )
 from live_watcher import live_recalc_watcher
 
@@ -94,6 +95,7 @@ class SetupFromArticleRequest(BaseModel):
     startRow: int = 2
     startCol: int = 1
     includeHeaders: bool = True
+    includeRowNumbers: bool = True
     writeMetadata: bool = False
     articleMetadata: Optional[Dict[str, Any]] = None
     sheetName: Optional[str] = None
@@ -263,6 +265,7 @@ def api_setup_from_article(request: SetupFromArticleRequest):
         request.startRow,
         request.startCol,
         request.includeHeaders,
+        request.includeRowNumbers,
         request.writeMetadata,
         request.articleMetadata,
         request.sheetName
@@ -407,6 +410,8 @@ def api_get_pq_for_calcslive(
     """
     if auto:
         result = find_pq_table(sheetName)
+        if not result.get("success"):
+            result = detect_pq_table(sheetName)
     else:
         result = read_pq_table(startRow, headerRow, sheetName)
 

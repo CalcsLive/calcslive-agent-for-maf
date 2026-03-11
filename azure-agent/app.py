@@ -1,5 +1,5 @@
 import streamlit as st
-from agent_core import CalcsLiveAgent, EXCEL_BRIDGE_URL, LAST_TABLE_CONTEXT, load_article_to_excel
+from agent_core import CalcsLiveAgent, EXCEL_BRIDGE_URL, LAST_TABLE_CONTEXT, load_article_to_excel, read_excel_pq_table
 from calcslive_tools import CALCSLIVE_API_KEY
 from app_shared import calc_table_rows, review_summary, review_table_title, tool_arguments_from_messages
 import time
@@ -23,6 +23,7 @@ Excel workflow:
 1. Load a created article into Excel.
 2. Let the user edit values/units in Excel.
 3. Use recalculation/live mode to keep outputs updated.
+4. If the user already laid out a compatible PQ table in Excel, read that table, review it as a CalcsLive script, and let the user persist it.
 
 Important:
 - Prefer review-first behavior.
@@ -182,6 +183,33 @@ with st.expander("Live Mode Status", expanded=False):
     if st.session_state.live_last_result:
         st.json({"lastResult": st.session_state.live_last_result})
 
+with st.expander("Review Current Excel Table", expanded=False):
+    st.caption("Use the current Excel sheet layout as the source of truth, then review it as a CalcsLive script before persisting.")
+    if st.button("Review Excel Table As Script"):
+        with st.spinner("Reading Excel table and running stateless script review..."):
+            excel_payload = read_excel_pq_table()
+            if excel_payload.get("success"):
+                review_payload = {
+                    "pqs": excel_payload.get("pqs", []),
+                    "inputs": excel_payload.get("inputs", {}),
+                    "outputs": excel_payload.get("outputs", {}),
+                }
+                review_result = st.session_state.agent.execute_tool("run_calcslive_script", review_payload)
+                if review_result.get("success"):
+                    st.session_state.review_candidate = review_payload
+                    st.session_state.review_result = review_result
+                    st.session_state.review_table_title = "Calculation Table"
+                    st.success("Excel table reviewed as a CalcsLive script.")
+                    st.rerun()
+                else:
+                    st.error(review_result.get("error", "Run script failed"))
+                    if review_result.get("details"):
+                        st.json(review_result.get("details"))
+            else:
+                st.error(excel_payload.get("error", "Failed to read Excel table"))
+                if excel_payload.get("details"):
+                    st.json(excel_payload.get("details"))
+
 with st.expander("Reviewed Script", expanded=bool(st.session_state.review_result)):
     if st.session_state.review_result:
         summary = review_summary(st.session_state.review_result)
@@ -214,6 +242,10 @@ with st.expander("Persist / Load", expanded=bool(st.session_state.review_candida
             load_clicked = st.button("Load To Excel", disabled=not bool(article_id))
 
         st.caption("The last reviewed `run_calcslive_script` payload is ready for approval.")
+        title_value = st.text_input("Article Title", value=candidate.get("title", ""), key="persist_title")
+        description_value = st.text_area("Article Description", value=candidate.get("description", ""), key="persist_description", height=80)
+        candidate["title"] = title_value
+        candidate["description"] = description_value
         st.code(json.dumps(candidate, indent=2), language="json")
 
         if create_clicked:

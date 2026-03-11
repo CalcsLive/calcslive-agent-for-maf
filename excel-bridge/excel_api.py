@@ -62,6 +62,46 @@ def _write_article_metadata_block(
     }
 
 
+def _table_start_col(start_col: int, include_row_numbers: bool) -> int:
+    """Return first semantic table column, skipping optional row-number column."""
+    return start_col + 1 if include_row_numbers else start_col
+
+
+def _detect_header_row_in_sheet(
+    ws: Any,
+    row_start: int = 1,
+    row_end: int = 30,
+    col_start: int = 1,
+    col_end: int = 20,
+) -> Tuple[Optional[int], Dict[str, int]]:
+    """Detect PQ header row by scanning for known column names."""
+    for candidate_row in range(row_start, row_end + 1):
+        candidate_headers: Dict[str, int] = {}
+        for col in range(col_start, col_end + 1):
+            cell_value = ws.Cells(candidate_row, col).Value
+            if cell_value is None:
+                continue
+
+            cell_str = str(cell_value).strip().lower()
+            if cell_str in ["#", "row", "index", "no", "no."]:
+                candidate_headers["rowNumber"] = col
+            elif 'desc' in cell_str or cell_str == 'pq':
+                candidate_headers['description'] = col
+            elif cell_str in ['sym', 'symbol', 'symbols']:
+                candidate_headers['symbol'] = col
+            elif cell_str in ['expr', 'expression', 'formula']:
+                candidate_headers['expression'] = col
+            elif cell_str in ['val', 'value', 'values']:
+                candidate_headers['value'] = col
+            elif cell_str in ['unit', 'units']:
+                candidate_headers['unit'] = col
+
+        if all(key in candidate_headers for key in ['symbol', 'value', 'unit']):
+            return candidate_row, candidate_headers
+
+    return None, {}
+
+
 def get_health() -> Dict[str, Any]:
     """
     Check Excel connection health.
@@ -392,33 +432,13 @@ def find_pq_table(sheet_name: Optional[str] = None) -> Dict[str, Any]:
         # metadata rows between ArticleID and the table header.
         label_row = article_info["labelRow"]
         label_col = article_info["labelCol"]
-        header_row = None
-        headers = {}
-        for candidate_row in range(label_row + 1, label_row + 13):
-            candidate_headers = {}
-            for col in range(label_col, label_col + 10):
-                cell_value = ws.Cells(candidate_row, col).Value
-                if cell_value is None:
-                    continue
-
-                cell_str = str(cell_value).strip().lower()
-
-                if 'desc' in cell_str or cell_str == 'pq':
-                    candidate_headers['description'] = col
-                elif cell_str in ['sym', 'symbol', 'symbols']:
-                    candidate_headers['symbol'] = col
-                elif cell_str in ['expr', 'expression', 'formula']:
-                    candidate_headers['expression'] = col
-                elif cell_str in ['val', 'value', 'values']:
-                    candidate_headers['value'] = col
-                elif cell_str in ['unit', 'units']:
-                    candidate_headers['unit'] = col
-
-            required = ['symbol', 'value', 'unit']
-            if all(key in candidate_headers for key in required):
-                header_row = candidate_row
-                headers = candidate_headers
-                break
+        header_row, headers = _detect_header_row_in_sheet(
+            ws,
+            row_start=label_row + 1,
+            row_end=label_row + 12,
+            col_start=label_col,
+            col_end=label_col + 10,
+        )
 
         if header_row is None:
             return {
@@ -494,6 +514,71 @@ def find_pq_table(sheet_name: Optional[str] = None) -> Dict[str, Any]:
             "error": str(e),
             "errorType": type(e).__name__
         }
+    finally:
+        pythoncom.CoUninitialize()
+
+
+def detect_pq_table(sheet_name: Optional[str] = None) -> Dict[str, Any]:
+    """Auto-detect a PQ table without requiring an ArticleID label."""
+    pythoncom.CoInitialize()
+    try:
+        app = win32com.client.GetActiveObject("Excel.Application")
+        wb = app.ActiveWorkbook
+
+        if wb is None:
+            return {"success": False, "error": "No active workbook"}
+
+        if sheet_name:
+            try:
+                ws = wb.Sheets(sheet_name)
+            except:
+                return {"success": False, "error": f"Sheet '{sheet_name}' not found"}
+        else:
+            ws = wb.ActiveSheet
+
+        header_row, headers = _detect_header_row_in_sheet(ws)
+        if header_row is None:
+            return {"success": False, "error": "Could not auto-detect PQ header row"}
+
+        data_start_row = header_row + 1
+        pqs = []
+        row = data_start_row
+        max_data_rows = 100
+
+        while row < data_start_row + max_data_rows:
+            symbol = ws.Cells(row, headers['symbol']).Value
+            if symbol is None or str(symbol).strip() == "":
+                break
+
+            pq = {
+                "row": row,
+                "sym": str(symbol).strip(),
+                "value": ws.Cells(row, headers['value']).Value,
+                "unit": str(ws.Cells(row, headers['unit']).Value or "").strip(),
+            }
+            if 'description' in headers:
+                pq["description"] = str(ws.Cells(row, headers['description']).Value or "").strip()
+            if 'expression' in headers:
+                expr = ws.Cells(row, headers['expression']).Value
+                pq["expression"] = str(expr).strip() if expr else ""
+            pq["isInput"] = not bool(pq.get("expression"))
+            pqs.append(pq)
+            row += 1
+
+        return {
+            "success": True,
+            "articleId": None,
+            "sheetName": ws.Name,
+            "workbookName": wb.Name,
+            "headerRow": header_row,
+            "dataStartRow": data_start_row,
+            "columns": headers,
+            "pqs": pqs,
+            "inputCount": sum(1 for pq in pqs if pq.get("isInput")),
+            "outputCount": sum(1 for pq in pqs if not pq.get("isInput")),
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e), "errorType": type(e).__name__}
     finally:
         pythoncom.CoUninitialize()
 
@@ -772,6 +857,7 @@ def setup_pq_table_from_article(pqs: List[Dict[str, Any]],
                                  start_row: int = 2,
                                  start_col: int = 1,
                                  include_headers: bool = True,
+                                 include_row_numbers: bool = True,
                                  write_metadata: bool = False,
                                  article_metadata: Optional[Dict[str, Any]] = None,
                                  sheet_name: Optional[str] = None) -> Dict[str, Any]:
@@ -809,38 +895,48 @@ def setup_pq_table_from_article(pqs: List[Dict[str, Any]],
         current_row = start_row
         metadata_info = None
 
+        table_start_col = _table_start_col(start_col, include_row_numbers)
+
         if write_metadata:
             metadata_info = _write_article_metadata_block(
                 ws,
                 start_row,
-                start_col,
+                table_start_col,
                 article_metadata or {},
             )
 
         # Write headers if requested
         if include_headers:
             headers = ["Description", "Symbol", "Expression", "Value", "Unit"]
+            if include_row_numbers:
+                row_num_cell = ws.Cells(start_row - 1, start_col)
+                row_num_cell.Value = "#"
+                row_num_cell.Interior.Color = 14277081
+                row_num_cell.Font.Bold = True
             for i, header in enumerate(headers):
-                cell = ws.Cells(start_row - 1, start_col + i)
+                cell = ws.Cells(start_row - 1, table_start_col + i)
                 cell.Value = header
                 # Light Gray background for headers, Bold text
                 cell.Interior.Color = 14277081  # RGB(217, 217, 217)
                 cell.Font.Bold = True
                 
         # Write PQ data
-        for pq in pqs:
-            ws.Cells(current_row, start_col).Value = pq.get("description", "")
-            ws.Cells(current_row, start_col + 1).Value = pq.get("sym", "")
+        for index, pq in enumerate(pqs, start=1):
+            if include_row_numbers:
+                ws.Cells(current_row, start_col).Value = index
+
+            ws.Cells(current_row, table_start_col).Value = pq.get("description", "")
+            ws.Cells(current_row, table_start_col + 1).Value = pq.get("sym", "")
             
-            expression_col = start_col + 2
-            value_col = start_col + 3
+            expression_col = table_start_col + 2
+            value_col = table_start_col + 3
             
             ws.Cells(current_row, expression_col).Value = pq.get("expression", "")
             if pq.get("value") is not None:
                 ws.Cells(current_row, value_col).Value = pq.get("value")
             else:
                 ws.Cells(current_row, value_col).Value = None
-            ws.Cells(current_row, start_col + 4).Value = pq.get("unit", "")
+            ws.Cells(current_row, table_start_col + 4).Value = pq.get("unit", "")
             
             # Formatting logic: 
             # If there's an expression, it's an output -> Green
@@ -848,7 +944,7 @@ def setup_pq_table_from_article(pqs: List[Dict[str, Any]],
             is_input = not bool(pq.get("expression"))
             
             # We highlight Symbol, Expression, and Value cells
-            sym_cell = ws.Cells(current_row, start_col + 1)
+            sym_cell = ws.Cells(current_row, table_start_col + 1)
             expr_cell = ws.Cells(current_row, expression_col)
             val_cell = ws.Cells(current_row, value_col)
             
@@ -865,7 +961,8 @@ def setup_pq_table_from_article(pqs: List[Dict[str, Any]],
             
         # Draw borders around the whole range
         header_r = start_row - 1 if include_headers else start_row
-        table_range = ws.Range(_cell_address(header_r, start_col) + ":" + _cell_address(current_row - 1, start_col + 4))
+        last_col = table_start_col + 4
+        table_range = ws.Range(_cell_address(header_r, start_col) + ":" + _cell_address(current_row - 1, last_col))
         
         # xlEdgeLeft = 7, xlEdgeTop = 8, xlEdgeBottom = 9, xlEdgeRight = 10, xlInsideVertical = 11, xlInsideHorizontal = 12
         # xlContinuous = 1, xlThin = 2
@@ -881,6 +978,7 @@ def setup_pq_table_from_article(pqs: List[Dict[str, Any]],
             "dataEndRow": current_row - 1,
             "pqCount": len(pqs),
             "metadata": metadata_info,
+            "includeRowNumbers": include_row_numbers,
         }
 
     except Exception as e:
