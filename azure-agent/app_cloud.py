@@ -21,6 +21,8 @@ Preferred workflow:
 Rules:
 - Prefer category-first unit mapping and include `categoryId` when useful.
 - Use pure physics formulas without hard-coded conversion factors.
+- Every PQ must include a meaningful human-readable `description` written for engineers/users.
+- Do not leave descriptions blank and do not use the symbol itself as the description unless the user explicitly requests terse notation.
 - If the user asks to save/persist/create immediately, you may create directly.
 - Otherwise default to review-first behavior.
 """
@@ -50,8 +52,49 @@ def _review_summary(result: dict[str, Any]) -> dict[str, Any]:
         "warnings": warnings,
         "categoryMetadata": category_metadata,
         "outputs": outputs,
+        "inputs": result.get("inputs") or {},
         "humanReadable": human_readable,
     }
+
+
+def _calc_table_rows(result: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    inputs = result.get("inputs") or {}
+    outputs = result.get("outputs") or {}
+
+    for sym, pq in inputs.items():
+        if not isinstance(pq, dict):
+            continue
+        rows.append(
+            {
+                "Kind": "Input",
+                "Description": pq.get("description") or sym,
+                "Symbol": sym,
+                "Expression": "",
+                "Value": pq.get("value"),
+                "Unit": pq.get("unit") or "",
+            }
+        )
+
+    for sym, pq in outputs.items():
+        if not isinstance(pq, dict):
+            continue
+        rows.append(
+            {
+                "Kind": "Output",
+                "Description": pq.get("description") or sym,
+                "Symbol": sym,
+                "Expression": pq.get("expression") or "",
+                "Value": pq.get("value"),
+                "Unit": pq.get("unit") or "",
+            }
+        )
+
+    return rows
+
+
+def _review_table_title() -> str:
+    return st.session_state.get("review_table_title") or "Calculation Table"
 
 
 st.set_page_config(page_title="CalcsLive Cloud Beta", layout="wide")
@@ -83,6 +126,8 @@ if "review_result" not in st.session_state:
 
 if "last_created_article" not in st.session_state:
     st.session_state.last_created_article = None
+if "review_table_title" not in st.session_state:
+    st.session_state.review_table_title = "Calculation Table"
 
 with st.sidebar:
     st.subheader("Cloud Beta")
@@ -102,6 +147,7 @@ with st.sidebar:
         st.session_state.review_candidate = None
         st.session_state.review_result = None
         st.session_state.last_created_article = None
+        st.session_state.review_table_title = "Calculation Table"
         st.rerun()
 
 for message in st.session_state.cloud_messages:
@@ -110,11 +156,8 @@ for message in st.session_state.cloud_messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-review_col, create_col = st.columns([3, 2])
-
-with review_col:
+with st.expander("Reviewed Script", expanded=bool(st.session_state.review_result)):
     if st.session_state.review_result:
-        st.subheader("Latest Reviewed Script")
         summary = _review_summary(st.session_state.review_result)
         hr = summary["humanReadable"]
         if isinstance(hr, dict) and hr.get("summary"):
@@ -122,20 +165,28 @@ with review_col:
         if summary["warnings"]:
             st.warning("Warnings were returned. Review them before saving.")
             st.json(summary["warnings"])
+        table_rows = _calc_table_rows(st.session_state.review_result)
+        if table_rows:
+            st.markdown(f"**{_review_table_title()}**")
+            st.table(table_rows)
         if summary["categoryMetadata"]:
             with st.expander("Category Metadata", expanded=False):
                 st.json(summary["categoryMetadata"])
-        if summary["outputs"]:
-            st.markdown("**Outputs**")
-            st.json(summary["outputs"])
+    else:
+        st.caption("Run a script in chat first to review the generated calculation here.")
 
-with create_col:
-    st.subheader("Persist Reviewed Calc")
+with st.expander("Persist Reviewed Calc", expanded=bool(st.session_state.review_candidate)):
     if st.session_state.review_candidate:
         candidate = st.session_state.review_candidate
+        article = st.session_state.last_created_article.get("article", {}) if st.session_state.last_created_article else {}
+
+        create_btn_col, spacer_col = st.columns([2, 8])
+        with create_btn_col:
+            create_clicked = st.button("Create Article", type="primary")
+
         st.caption("This uses the last successfully reviewed script payload.")
         st.code(json.dumps(candidate, indent=2), language="json")
-        if st.button("Create Article From Reviewed Script", type="primary"):
+        if create_clicked:
             with st.spinner("Creating article in CalcsLive..."):
                 create_result = create_calcslive_article_from_script(
                     pqs=candidate.get("pqs", []),
@@ -149,12 +200,18 @@ with create_col:
                 )
             if create_result.get("success"):
                 st.session_state.last_created_article = create_result
+                if isinstance(st.session_state.review_candidate, dict):
+                    article = create_result.get("article", {})
+                    if isinstance(article, dict) and article.get("title"):
+                        st.session_state.review_candidate["title"] = article.get("title")
+                        st.session_state.review_table_title = article.get("title")
                 article = create_result.get("article", {})
                 st.success("Article created successfully.")
                 if article.get("url"):
                     st.markdown(f"- URL: {article.get('url')}")
                 if article.get("id"):
                     st.markdown(f"- ID: `{article.get('id')}`")
+                st.rerun()
             else:
                 st.error(create_result.get("error", "Create failed"))
                 if create_result.get("details"):
@@ -164,7 +221,29 @@ with create_col:
 
 if st.session_state.last_created_article:
     with st.expander("Last Created Article", expanded=True):
-        st.json(st.session_state.last_created_article)
+        created = st.session_state.last_created_article
+        article = created.get("article", {}) if isinstance(created.get("article"), dict) else {}
+        human_readable = created.get("humanReadable", {}) if isinstance(created.get("humanReadable"), dict) else {}
+        if article.get("title"):
+            st.markdown(f"**Title:** {article.get('title')}")
+        if article.get("id"):
+            st.markdown(f"**ID:** `{article.get('id')}`")
+        if article.get("url"):
+            st.markdown(f"**URL:** {article.get('url')}")
+        if human_readable.get("summary"):
+            st.markdown(f"**Summary:** {human_readable.get('summary')}")
+
+        created_rows = _calc_table_rows(created)
+        if created_rows:
+            st.table(created_rows)
+
+        warnings = created.get("warnings") or []
+        if warnings:
+            st.warning("Warnings")
+            st.json(warnings)
+
+        with st.expander("Raw response", expanded=False):
+            st.json(created)
 
 if prompt := st.chat_input("Ask to run or create a calculation script..."):
     st.chat_message("user").markdown(prompt)
@@ -187,6 +266,7 @@ if prompt := st.chat_input("Ask to run or create a calculation script..."):
                         if tool_args:
                             st.session_state.review_candidate = tool_args
                             st.session_state.review_result = result
+                            st.session_state.review_table_title = tool_args.get("title") or "Calculation Table"
                             refresh_for_review = True
 
                     if tool_name == "create_calcslive_article_from_script" and result.get("success"):
