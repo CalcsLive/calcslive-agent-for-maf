@@ -1,15 +1,16 @@
 import streamlit as st
 from agent_core import CalcsLiveAgent, EXCEL_BRIDGE_URL, LAST_TABLE_CONTEXT, load_article_to_excel, read_excel_pq_table
-from calcslive_tools import CALCSLIVE_API_KEY
+from calcslive_tools import CALCSLIVE_API_KEY, CALCSLIVE_API_URL
 from app_shared import calc_table_rows, review_summary, review_table_title, tool_arguments_from_messages
 import time
 import httpx
 import json
+from pathlib import Path
 
 
-LOCAL_SYSTEM_MESSAGE = """You are the CalcsLive Excel Agent.
+UNIFIED_SYSTEM_MESSAGE = """You are the CalcsLive Agent.
 
-You help users design, review, persist, load, and run unit-aware calculations with CalcsLive and Excel.
+You help users design, review, persist, and run unit-aware calculations with CalcsLive. When Excel bridge access is available, you also help users move calculations to and from Excel.
 
 Preferred workflow for new calculations:
 1. Understand the calculation goal.
@@ -19,7 +20,7 @@ Preferred workflow for new calculations:
 5. Do not create/persist the article automatically from chat unless the user explicitly says to persist immediately.
 6. Prefer the UI approval flow: review script -> create article -> load article to Excel.
 
-Excel workflow:
+Excel workflow (when Excel bridge is available):
 1. Load a created article into Excel.
 2. Let the user edit values/units in Excel.
 3. Use recalculation/live mode to keep outputs updated.
@@ -34,9 +35,9 @@ Important:
 """
 
 
-LOCAL_GREETING = (
+UNIFIED_GREETING = (
     "Hi! I can help you design a CalcsLive calculation, review it, persist it, "
-    "load it into Excel, and keep Excel outputs updated."
+    "and, when Excel is connected, bridge it to and from Excel with automatic updates."
 )
 def _bridge_url() -> str:
     return EXCEL_BRIDGE_URL
@@ -63,21 +64,33 @@ def _bridge_get(path: str) -> dict:
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+
+def _excel_bridge_available() -> bool:
+    health = _bridge_get("/excel/health")
+    return bool(health.get("success"))
+
+APP_ICON_PATH = Path(__file__).resolve().parent.parent / "assets" / "images" / "e3d-logo3.png"
+
 st.set_page_config(
-    page_title="CalcsLive Agent UI",
-    page_icon="🧮",
+    page_title="CalcsLive Agent",
+    page_icon=str(APP_ICON_PATH),
     layout="wide",
 )
 
 # Render main UI elements
-st.title("🧮 CalcsLive Agent Dashboard")
-st.markdown("Automate unit-aware calculations between your Excel spreadsheets and CalcsLive. Use chat to design/review a calc, then persist and load it into Excel.")
+st.title("🧮 CalcsLive Agent")
+
+excel_bridge_available = _excel_bridge_available()
+if excel_bridge_available:
+    st.markdown("Design and review CalcsLive calculations, create persistent articles, and bridge them to/from Excel when connected.")
+else:
+    st.markdown("Design and review CalcsLive calculations and create persistent articles. Excel bridge features will appear automatically when available.")
 
 # Initialize the Azure Agent in session state
 if "agent" not in st.session_state:
     try:
         st.session_state.agent = CalcsLiveAgent()
-        st.session_state.agent.system_message = LOCAL_SYSTEM_MESSAGE
+        st.session_state.agent.system_message = UNIFIED_SYSTEM_MESSAGE
         st.success(f"Connected to Azure AI (Mode: {st.session_state.agent.mode})", icon="✅")
     except Exception as e:
         st.error(f"Failed to initialize Agent: {str(e)}", icon="🚨")
@@ -86,9 +99,9 @@ if "agent" not in st.session_state:
 if "messages" not in st.session_state:
     # Initialize with the system prompt, but we will not render this specific message in the UI loop
     if "agent" in st.session_state:
-        st.session_state.messages = [{"role": "system", "content": LOCAL_SYSTEM_MESSAGE}]
+        st.session_state.messages = [{"role": "system", "content": UNIFIED_SYSTEM_MESSAGE}]
         # Add a friendly greeting
-        st.session_state.messages.append({"role": "assistant", "content": LOCAL_GREETING})
+        st.session_state.messages.append({"role": "assistant", "content": UNIFIED_GREETING})
     else:
         st.session_state.messages = []
 
@@ -113,16 +126,31 @@ if "review_table_title" not in st.session_state:
     st.session_state.review_table_title = "Calculation Table"
 
 with st.sidebar:
-    st.subheader("Live Mode")
-    live_mode = st.checkbox("Enable auto-recalc (event-driven)", value=False, key="live_mode")
-    debounce_interval = st.slider("Debounce (seconds)", 1, 30, 3, key="live_debounce")
-    st.caption("Uses Excel COM SheetChange events in bridge; no polling in UI.")
-    st.button("Refresh live status")
+    st.subheader("App Options")
+    if excel_bridge_available:
+        live_mode = st.checkbox("Auto-update Excel results", value=True, key="live_mode")
+        debounce_interval = st.slider("Update debounce (seconds)", 1, 30, 3, key="live_debounce")
+    with st.expander("Advanced / Debug", expanded=False):
+        if excel_bridge_available:
+            st.caption("Uses Excel COM SheetChange events in bridge; no polling in UI.")
+        st.markdown(f"- CalcsLive API: `{CALCSLIVE_API_URL}`")
+        st.markdown(f"- Excel Bridge: `{EXCEL_BRIDGE_URL}`")
+        st.markdown(f"- Excel bridge available: `{excel_bridge_available}`")
+        if excel_bridge_available:
+            st.button("Refresh live status")
+            if st.session_state.live_last_status:
+                st.markdown(f"- Live mode: {st.session_state.live_last_status}")
+            if LAST_TABLE_CONTEXT:
+                st.json({"tableContext": LAST_TABLE_CONTEXT})
+            if st.session_state.live_status_raw:
+                st.json({"watcherStatus": st.session_state.live_status_raw})
+            if st.session_state.live_last_result:
+                st.json({"lastResult": st.session_state.live_last_result})
     if st.button("Clear chat"):
         if "agent" in st.session_state:
-            st.session_state.agent.system_message = LOCAL_SYSTEM_MESSAGE
-            st.session_state.messages = [{"role": "system", "content": LOCAL_SYSTEM_MESSAGE}]
-            st.session_state.messages.append({"role": "assistant", "content": LOCAL_GREETING})
+            st.session_state.agent.system_message = UNIFIED_SYSTEM_MESSAGE
+            st.session_state.messages = [{"role": "system", "content": UNIFIED_SYSTEM_MESSAGE}]
+            st.session_state.messages.append({"role": "assistant", "content": UNIFIED_GREETING})
         else:
             st.session_state.messages = []
         st.session_state.review_candidate = None
@@ -132,7 +160,7 @@ with st.sidebar:
         st.rerun()
 
 # Start/stop bridge live watcher when checkbox state changes.
-if st.session_state.get("live_mode") and not st.session_state.get("live_bridge_enabled"):
+if excel_bridge_available and st.session_state.get("live_mode") and not st.session_state.get("live_bridge_enabled"):
     context = LAST_TABLE_CONTEXT or {}
     payload = {
         "autoDetect": not bool(context.get("startRow") and context.get("headerRow")),
@@ -151,7 +179,7 @@ if st.session_state.get("live_mode") and not st.session_state.get("live_bridge_e
         st.session_state.live_bridge_enabled = False
         st.session_state.live_last_status = f"Failed to enable live mode: {start_result.get('error')}"
 
-if not st.session_state.get("live_mode") and st.session_state.get("live_bridge_enabled"):
+if excel_bridge_available and not st.session_state.get("live_mode") and st.session_state.get("live_bridge_enabled"):
     stop_result = _bridge_post("/excel/live-mode/stop", {})
     if stop_result.get("success"):
         st.session_state.live_bridge_enabled = False
@@ -160,8 +188,8 @@ if not st.session_state.get("live_mode") and st.session_state.get("live_bridge_e
         st.session_state.live_last_status = f"Failed to stop live mode: {stop_result.get('error')}"
 
 # Pull watcher status for display.
-status_result = _bridge_get("/excel/live-mode/status")
-if status_result.get("success"):
+status_result = _bridge_get("/excel/live-mode/status") if excel_bridge_available else {"success": False}
+if excel_bridge_available and status_result.get("success"):
     status = status_result.get("status", {})
     st.session_state.live_status_raw = status
     st.session_state.live_last_result = status.get("lastResult")
@@ -174,43 +202,53 @@ if status_result.get("success"):
         else:
             st.session_state.live_last_status = "Watching changes"
 
-with st.expander("Live Mode Status", expanded=False):
-    st.markdown(f"**Status:** {st.session_state.live_last_status}")
-    if LAST_TABLE_CONTEXT:
-        st.json({"tableContext": LAST_TABLE_CONTEXT})
-    if st.session_state.live_status_raw:
-        st.json({"watcherStatus": st.session_state.live_status_raw})
-    if st.session_state.live_last_result:
-        st.json({"lastResult": st.session_state.live_last_result})
+if excel_bridge_available:
+    with st.expander("Bridge to/from Excel", expanded=False):
+        st.caption("Two-way bridge: send a reviewed CalcsLive calc to Excel, or read + convert + review an Excel table as a CalcsLive script.")
+        send_col, get_col, spacer_col = st.columns([2, 2, 6])
+        created_article = st.session_state.last_created_article.get("article", {}) if st.session_state.last_created_article else {}
+        created_article_id = created_article.get("id")
+        with send_col:
+            send_to_excel_clicked = st.button("Send Calc to Excel", disabled=not bool(created_article_id))
+        with get_col:
+            get_from_excel_clicked = st.button("Get Calc from Excel")
 
-with st.expander("Review Current Excel Table", expanded=False):
-    st.caption("Use the current Excel sheet layout as the source of truth, then review it as a CalcsLive script before persisting.")
-    if st.button("Review Excel Table As Script"):
-        with st.spinner("Reading Excel table and running stateless script review..."):
-            excel_payload = read_excel_pq_table()
-            if excel_payload.get("success"):
-                review_payload = {
-                    "pqs": excel_payload.get("pqs", []),
-                    "inputs": excel_payload.get("inputs", {}),
-                    "outputs": excel_payload.get("outputs", {}),
-                }
-                review_result = st.session_state.agent.execute_tool("run_calcslive_script", review_payload)
-                if review_result.get("success"):
-                    st.session_state.review_candidate = review_payload
-                    st.session_state.review_result = review_result
-                    st.session_state.review_table_title = "Calculation Table"
-                    st.success("Excel table reviewed as a CalcsLive script.")
-                    st.rerun()
-                else:
-                    st.error(review_result.get("error", "Run script failed"))
-                    if review_result.get("details"):
-                        st.json(review_result.get("details"))
+        if send_to_excel_clicked and created_article_id:
+            with st.spinner("Loading created article into Excel..."):
+                load_result = load_article_to_excel(article_id=created_article_id)
+            if load_result.get("success"):
+                st.success(f"Loaded `{created_article_id}` into Excel.")
             else:
-                st.error(excel_payload.get("error", "Failed to read Excel table"))
-                if excel_payload.get("details"):
-                    st.json(excel_payload.get("details"))
+                st.error(load_result.get("error", "Load failed"))
+                if load_result.get("details"):
+                    st.json(load_result.get("details"))
 
-with st.expander("Reviewed Script", expanded=bool(st.session_state.review_result)):
+        if get_from_excel_clicked:
+            with st.spinner("Reading Excel table and running stateless script review..."):
+                excel_payload = read_excel_pq_table()
+                if excel_payload.get("success"):
+                    review_payload = {
+                        "pqs": excel_payload.get("pqs", []),
+                        "inputs": excel_payload.get("inputs", {}),
+                        "outputs": excel_payload.get("outputs", {}),
+                    }
+                    review_result = st.session_state.agent.execute_tool("run_calcslive_script", review_payload)
+                    if review_result.get("success"):
+                        st.session_state.review_candidate = review_payload
+                        st.session_state.review_result = review_result
+                        st.session_state.review_table_title = "Calculation Table"
+                        st.success("Excel table converted and reviewed as a CalcsLive script.")
+                        st.rerun()
+                    else:
+                        st.error(review_result.get("error", "Run script failed"))
+                        if review_result.get("details"):
+                            st.json(review_result.get("details"))
+                else:
+                    st.error(excel_payload.get("error", "Failed to read Excel table"))
+                    if excel_payload.get("details"):
+                        st.json(excel_payload.get("details"))
+
+with st.expander("Reviewed CalcsLive Script", expanded=bool(st.session_state.review_result)):
     if st.session_state.review_result:
         summary = review_summary(st.session_state.review_result)
         human_readable = summary["humanReadable"]
@@ -229,17 +267,12 @@ with st.expander("Reviewed Script", expanded=bool(st.session_state.review_result
     else:
         st.caption("Run a script first to review warnings, categories, and outputs here.")
 
-with st.expander("Persist / Load", expanded=bool(st.session_state.review_candidate)):
+with st.expander("Create Calculation Article", expanded=bool(st.session_state.review_candidate)):
     if st.session_state.review_candidate:
         candidate = st.session_state.review_candidate
-        article = st.session_state.last_created_article.get("article", {}) if st.session_state.last_created_article else {}
-        article_id = article.get("id")
-
-        create_btn_col, load_btn_col, spacer_col = st.columns([2, 2, 6])
+        create_btn_col, spacer_col = st.columns([2, 8])
         with create_btn_col:
             create_clicked = st.button("Create Article", type="primary")
-        with load_btn_col:
-            load_clicked = st.button("Load To Excel", disabled=not bool(article_id))
 
         st.caption("The last reviewed `run_calcslive_script` payload is ready for approval.")
         title_value = st.text_input("Article Title", value=candidate.get("title", ""), key="persist_title")
@@ -283,15 +316,6 @@ with st.expander("Persist / Load", expanded=bool(st.session_state.review_candida
                 if create_result.get("details"):
                     st.json(create_result.get("details"))
 
-        if article_id and load_clicked:
-            with st.spinner("Loading created article into Excel..."):
-                load_result = load_article_to_excel(article_id=article_id)
-            if load_result.get("success"):
-                st.success(f"Loaded `{article_id}` into Excel.")
-            else:
-                st.error(load_result.get("error", "Load failed"))
-                if load_result.get("details"):
-                    st.json(load_result.get("details"))
     else:
         st.caption("Ask the agent to create and review a calculation script first.")
 

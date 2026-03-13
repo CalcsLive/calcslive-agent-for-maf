@@ -47,7 +47,7 @@ function Ensure-EnvVar {
     if ([string]::IsNullOrWhiteSpace($value)) {
         Write-Host "Missing required environment variable: $Name" -ForegroundColor Yellow
         Write-Host "Set it once in current shell, example:" -ForegroundColor Yellow
-        Write-Host "  `$env:$Name = \"<your-secret>\"" -ForegroundColor Yellow
+        Write-Host ('  $env:{0} = "<your-secret>"' -f $Name) -ForegroundColor Yellow
         $value = Read-Host "Enter value for $Name"
         if ([string]::IsNullOrWhiteSpace($value)) {
             throw "Missing required environment variable: $Name"

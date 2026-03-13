@@ -147,10 +147,10 @@ function Show-Status {
 
 function Show-Help {
     Write-Host "CalcsLive Agent - Developer CLI" -ForegroundColor Cyan
-    Write-Host "Usage: .\dev.ps1 <command> [options]`n"
+    Write-Host "Usage: .\dev.ps1 COMMAND [options]`n"
     Write-Host "Commands:"
-    Write-Host "  local               Start Excel bridge + local Streamlit app (azure-agent\app.py)."
-    Write-Host "  cloud               Start cloud-only (no Excel) Streamlit app locally (azure-agent\app_cloud.py)."
+    Write-Host "  local               Start Excel bridge + unified Streamlit app (azure-agent\app.py)."
+    Write-Host "  cloud               Start unified Streamlit app without auto-starting Excel bridge."
     Write-Host "  bridge-start        Start Excel Bridge only."
     Write-Host "  bridge-stop         Stop Excel Bridge process(es)."
     Write-Host "  status              Show local dev status (python + bridge health)."
@@ -158,7 +158,7 @@ function Show-Help {
     Write-Host "  deploy-appservice   Deploy to Azure App Service (legacy path)."
     Write-Host "  help                Show this help menu.`n"
     Write-Host "Options:"
-    Write-Host "  -ConfigPath <path>  Deploy config path (used by 'deploy')."
+    Write-Host "  -ConfigPath PATH  Deploy config path (used by 'deploy')."
     Write-Host "  -SkipCodeDeploy     Skip code package deploy for App Service command only." 
     Write-Host "  -UseLocalCalcsLiveApi  Force Streamlit app to use http://localhost:3000/api/v1 for local API testing."
     Write-Host "  (Deploy scripts auto-load .env or azure-agent/.env and prompt for missing CALCSLIVE_API_KEY.)"
@@ -175,7 +175,7 @@ switch ($Command.ToLower()) {
         Start-Streamlit -AppPath (Join-Path $scriptRoot "azure-agent\app.py")
     }
     "cloud" {
-        Start-Streamlit -AppPath (Join-Path $scriptRoot "azure-agent\app_cloud.py")
+        Start-Streamlit -AppPath (Join-Path $scriptRoot "azure-agent\app.py")
     }
     "bridge-start" {
         Start-Excel-Bridge
