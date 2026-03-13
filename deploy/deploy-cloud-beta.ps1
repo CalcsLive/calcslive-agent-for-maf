@@ -5,6 +5,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $false
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 
@@ -16,15 +17,27 @@ function Invoke-Az {
     )
 
     Write-Host "> $Command"
-    $output = Invoke-Expression $Command 2>&1
-    $exitCode = $LASTEXITCODE
+    $stdoutFile = [System.IO.Path]::GetTempFileName()
+    $stderrFile = [System.IO.Path]::GetTempFileName()
 
-    if (-not $AllowFailure -and $exitCode -ne 0) {
-        $message = ($output | Out-String).Trim()
-        throw "Azure CLI command failed (exit=$exitCode): $Command`n$message"
+    try {
+        Invoke-Expression "$Command 1> \"$stdoutFile\" 2> \"$stderrFile\"" | Out-Null
+        $exitCode = $LASTEXITCODE
+
+        $stdout = if (Test-Path $stdoutFile) { Get-Content $stdoutFile -Raw } else { "" }
+        $stderr = if (Test-Path $stderrFile) { Get-Content $stderrFile -Raw } else { "" }
+        $output = (($stdout + [Environment]::NewLine + $stderr).Trim())
+
+        if (-not $AllowFailure -and $exitCode -ne 0) {
+            throw "Azure CLI command failed (exit=$exitCode): $Command`n$output"
+        }
+
+        return $output
     }
-
-    return $output
+    finally {
+        if (Test-Path $stdoutFile) { Remove-Item $stdoutFile -Force }
+        if (Test-Path $stderrFile) { Remove-Item $stderrFile -Force }
+    }
 }
 
 function Test-AzLogin {

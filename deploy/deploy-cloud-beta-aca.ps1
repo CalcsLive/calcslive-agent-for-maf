@@ -4,6 +4,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $false
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 
@@ -27,15 +28,27 @@ function Invoke-Az {
         Write-Host "> $Command"
     }
 
-    $output = Invoke-Expression $Command 2>&1
-    $exitCode = $LASTEXITCODE
+    $stdoutFile = [System.IO.Path]::GetTempFileName()
+    $stderrFile = [System.IO.Path]::GetTempFileName()
 
-    if (-not $AllowFailure -and $exitCode -ne 0) {
-        $message = ($output | Out-String).Trim()
-        throw "Azure CLI command failed (exit=$exitCode): $Command`n$message"
+    try {
+        $proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c $Command 1> `"$stdoutFile`" 2> `"$stderrFile`"" -NoNewWindow -Wait -PassThru
+        $exitCode = $proc.ExitCode
+
+        $stdout = if (Test-Path $stdoutFile) { Get-Content $stdoutFile -Raw } else { "" }
+        $stderr = if (Test-Path $stderrFile) { Get-Content $stderrFile -Raw } else { "" }
+        $output = (($stdout + [Environment]::NewLine + $stderr).Trim())
+
+        if (-not $AllowFailure -and $exitCode -ne 0) {
+            throw "Azure CLI command failed (exit=$exitCode): $Command`n$output"
+        }
+
+        return $output
     }
-
-    return $output
+    finally {
+        if (Test-Path $stdoutFile) { Remove-Item $stdoutFile -Force }
+        if (Test-Path $stderrFile) { Remove-Item $stderrFile -Force }
+    }
 }
 
 function Test-AzLogin {
@@ -121,15 +134,15 @@ function Ensure-AzProvider {
 
     Write-Host "Ensuring provider registration: $Namespace"
 
-    $state = Invoke-Az -Command "az provider show --namespace '$Namespace' --query registrationState -o tsv" -AllowFailure
+    $state = Invoke-Az -Command "az provider show --namespace `"$Namespace`" --query registrationState -o tsv" -AllowFailure
     if (($state | Out-String).Trim() -eq "Registered") {
         return
     }
 
-    Invoke-Az -Command "az provider register --namespace '$Namespace' -o none"
+    Invoke-Az -Command "az provider register --namespace `"$Namespace`" -o none"
 
     for ($i = 0; $i -lt 40; $i++) {
-        $state = Invoke-Az -Command "az provider show --namespace '$Namespace' --query registrationState -o tsv" -AllowFailure
+        $state = Invoke-Az -Command "az provider show --namespace `"$Namespace`" --query registrationState -o tsv" -AllowFailure
         if (($state | Out-String).Trim() -eq "Registered") {
             return
         }
@@ -152,11 +165,21 @@ if (-not (Test-AzLogin)) {
 }
 
 Write-Host "Setting subscription $($config.subscriptionId)..."
-Invoke-Az -Command "az account set --subscription '$($config.subscriptionId)'"
+Invoke-Az -Command "az account set --subscription `"$($config.subscriptionId)`""
 
 Write-Host "Ensuring required Azure CLI extension..."
-Invoke-Az -Command "az config set extension.use_dynamic_install=yes_without_prompt -o none" -AllowFailure
-Invoke-Az -Command "az extension add --name containerapp --upgrade -o none" -AllowFailure
+try {
+    az config set extension.use_dynamic_install=yes_without_prompt -o none 1>$null 2>$null
+}
+catch {
+    Write-Host "Skipping az config dynamic install setting due to warning/error." -ForegroundColor Yellow
+}
+try {
+    az extension add --name containerapp --upgrade --allow-preview true -o none 1>$null 2>$null
+}
+catch {
+    Write-Host "Skipping/continuing after containerapp extension install warning." -ForegroundColor Yellow
+}
 
 Ensure-AzProvider -Namespace "Microsoft.App"
 Ensure-AzProvider -Namespace "Microsoft.OperationalInsights"
@@ -164,12 +187,12 @@ Ensure-AzProvider -Namespace "Microsoft.ContainerRegistry"
 Ensure-AzProvider -Namespace "Microsoft.Insights"
 
 Write-Host "Ensuring resource group $($config.resourceGroup)..."
-Invoke-Az -Command "az group create --name '$($config.resourceGroup)' --location '$($config.location)' -o none"
+Invoke-Az -Command "az group create --name `"$($config.resourceGroup)`" --location `"$($config.location)`" -o none"
 
 Write-Host "Ensuring Container Apps environment $($config.environmentName)..."
-$envExists = Invoke-Az -Command "az containerapp env show --name '$($config.environmentName)' --resource-group '$($config.resourceGroup)' -o json" -AllowFailure
+$envExists = Invoke-Az -Command "az containerapp env show --name `"$($config.environmentName)`" --resource-group `"$($config.resourceGroup)`" -o json" -AllowFailure
 if (-not $envExists) {
-    Invoke-Az -Command "az containerapp env create --name '$($config.environmentName)' --resource-group '$($config.resourceGroup)' --location '$($config.location)' -o none"
+    Invoke-Az -Command "az containerapp env create --name `"$($config.environmentName)`" --resource-group `"$($config.resourceGroup)`" --location `"$($config.location)`" -o none"
 }
 
 $calcsliveApiKey = Ensure-EnvVar -Name "CALCSLIVE_API_KEY"
@@ -195,14 +218,14 @@ $projectPath = (Resolve-Path $config.projectPath).Path
 
 Write-Host "Checking for existing Azure Container Registry..."
 $acrName = "acrcalcslivebeta" + ($config.subscriptionId.Substring(0, 4))
-$acrExists = Invoke-Az -Command "az acr show --name '$acrName' -o none" -AllowFailure
+$acrExists = Invoke-Az -Command "az acr show --name `"$acrName`" -o none" -AllowFailure
 if (-not $acrExists) {
     Write-Host "Creating Azure Container Registry $acrName (Basic sku)..."
-    Invoke-Az -Command "az acr create --name '$acrName' --resource-group '$($config.resourceGroup)' --sku Basic --admin-enabled true -o none"
+    Invoke-Az -Command "az acr create --name `"$acrName`" --resource-group `"$($config.resourceGroup)`" --sku Basic --admin-enabled true -o none"
 }
 
 Write-Host "Fetching Azure Container Registry $acrName credentials..."
-$acrCredsJson = Invoke-Az -Command "az acr credential show --name '$acrName' -o json"
+$acrCredsJson = Invoke-Az -Command "az acr credential show --name `"$acrName`" -o json"
 $acrCreds = $acrCredsJson | ConvertFrom-Json
 $acrPassword = $acrCreds.passwords[0].value
 
@@ -210,10 +233,11 @@ $ts = (Get-Date).ToString('yyyyMMdd-HHmmss')
 $imageTag = "$acrName.azurecr.io/$($config.appName):$ts"
 
 Write-Host "Logging into Azure Container Registry $acrName with Docker..."
-Write-Host "> docker login $acrName.azurecr.io -u $acrName -p [masked]"
-$dockerLoginOutput = Invoke-Expression "docker login $acrName.azurecr.io -u $acrName -p $acrPassword" 2>&1
-if ($LASTEXITCODE -ne 0) {
-    throw "Docker login failed: $dockerLoginOutput"
+Write-Host "> docker login $acrName.azurecr.io -u $acrName --password-stdin"
+$dockerResult = $acrPassword | docker login "$acrName.azurecr.io" -u $acrName --password-stdin 2>&1
+$dockerExitCode = $LASTEXITCODE
+if ($dockerExitCode -ne 0) {
+    throw "Docker login failed: $dockerResult"
 }
 
 Write-Host "Building Docker image locally ($imageTag) from source path $projectPath ..."
@@ -249,8 +273,11 @@ if ($envVars.Count -gt 0) {
     $azArgs += $envVars
 }
 
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 $output = & az $azArgs 2>&1
 $exitCode = $LASTEXITCODE
+$ErrorActionPreference = $prevEAP
 
 if ($exitCode -ne 0) {
     $message = ""
@@ -270,8 +297,11 @@ $azUpdateArgs = @(
     "-o", "none"
 )
 
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 $outputUpdate = & az $azUpdateArgs 2>&1
 $exitCodeUpdate = $LASTEXITCODE
+$ErrorActionPreference = $prevEAP
 
 if ($exitCodeUpdate -ne 0) {
     $updateMessage = ""
@@ -279,5 +309,5 @@ if ($exitCodeUpdate -ne 0) {
     throw "az containerapp update failed (exit=$exitCodeUpdate):`n$updateMessage"
 }
 
-$fqdn = Invoke-Az -Command "az containerapp show --name '$($config.appName)' --resource-group '$($config.resourceGroup)' --query properties.configuration.ingress.fqdn -o tsv"
+$fqdn = Invoke-Az -Command "az containerapp show --name `"$($config.appName)`" --resource-group `"$($config.resourceGroup)`" --query properties.configuration.ingress.fqdn -o tsv"
 Write-Host "Done. App URL: https://$fqdn"
