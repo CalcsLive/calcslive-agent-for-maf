@@ -15,10 +15,11 @@ You help users design, review, persist, and run unit-aware calculations with Cal
 Preferred workflow for new calculations:
 1. Understand the calculation goal.
 2. Discover units or resolve ambiguous aliases when needed.
-3. Build a PQ script using unit-agnostic formulas.
-4. Run the script first with `run_calcslive_script` for review.
-5. Do not create/persist the article automatically from chat unless the user explicitly says to persist immediately.
-6. Prefer the UI approval flow: review script -> create article -> load article to Excel.
+3. Define the input quantities clearly, including sensible initial values and units for each input PQ.
+4. Build a PQ script using unit-agnostic formulas.
+5. Run the script first with `run_calcslive_script` for review.
+6. Do not create/persist the article automatically from chat unless the user explicitly says to persist immediately.
+7. Prefer the UI approval flow: review script -> create article -> load article to Excel.
 
 Excel workflow (when Excel bridge is available):
 1. Load a created article into Excel.
@@ -130,6 +131,34 @@ with st.sidebar:
     if excel_bridge_available:
         live_mode = st.checkbox("Auto-update Excel results", value=True, key="live_mode")
         debounce_interval = st.slider("Update debounce (seconds)", 1, 30, 3, key="live_debounce")
+    with st.expander("Sample Prompts", expanded=True):
+        st.caption("Copy one of these to get started:")
+        st.text_area(
+            "Prompt 1",
+            value="Please calculate the acceleration for a car to go from 0 to 100 km per hour in 3 seconds and the distance covered.",
+            height=70,
+        )
+        st.text_area(
+            "Prompt 2",
+            value="Calculate the mass of a steel sphere.",
+            height=70,
+        )
+        st.text_area(
+            "Prompt 3",
+            value="Calculate the stress and deflection of simple HSS beam with fixed support at both ends under uniform distributed load.",
+            height=90,
+        )
+        st.text_area(
+            "Prompt 4",
+            value="Calculate the Earth escape velocity.",
+            height=70,
+        )
+    with st.expander("CalcsLive Help", expanded=False):
+        st.caption("Use these references when refining units, PQ symbols, formulas, or supported math functions.")
+        st.markdown("- [Overall Help](https://calcslive.com/help)")
+        st.markdown("- [PQ Guide](https://calcslive.com/help/pq-guide)")
+        st.markdown("- [Units Reference](https://calcslive.com/help/units-reference)")
+        st.markdown("- [Math Reference](https://calcslive.com/help/math-reference)")
     with st.expander("Advanced / Debug", expanded=False):
         if excel_bridge_available:
             st.caption("Uses Excel COM SheetChange events in bridge; no polling in UI.")
@@ -204,8 +233,15 @@ if excel_bridge_available and status_result.get("success"):
 
 if excel_bridge_available:
     with st.expander("Bridge to/from Excel", expanded=False):
-        st.caption("Two-way bridge: send a reviewed CalcsLive calc to Excel, or read + convert + review an Excel table as a CalcsLive script.")
         send_col, get_col, spacer_col = st.columns([2, 2, 6])
+        st.caption("Two-way bridge: send a reviewed CalcsLive calc to Excel, or read + convert + review an Excel table as a CalcsLive script.")
+        st.markdown(
+            "**How to use this bridge**\n"
+            "- **Send Calc to Excel**: First review and create a calculation article in the app. Then send that created article into Excel so the bridge writes the metadata block and PQ table structure for interactive use.\n"
+            "- **Get Calc from Excel**: Prepare a compatible PQ table in Excel, then let the bridge read it, convert it into a stateless CalcsLive script review payload, and show the reviewed result back in the app before you persist it as a new article.\n"
+            "- **Excel table structure expected**: the bridge looks for columns matching Description, Symbol, Expression, Value, and Unit. A left-side row number column is allowed. For inputs, leave Expression blank and provide initial Value + Unit. For outputs, provide an Expression and desired Unit.\n"
+            "- **Recommended flow for Excel-originated calculations**: lay out the PQ rows in Excel using the same table structure, click **Get Calc from Excel**, review warnings/results, adjust Article Title and Description if needed, then click **Create Article**."
+        )
         created_article = st.session_state.last_created_article.get("article", {}) if st.session_state.last_created_article else {}
         created_article_id = created_article.get("id")
         with send_col:
@@ -330,6 +366,16 @@ if st.session_state.last_created_article:
             st.markdown(f"**ID:** `{article.get('id')}`")
         if article.get("url"):
             st.markdown(f"**URL:** {article.get('url')}")
+        article_id = article.get("id")
+        if article_id:
+            base = "https://www.calcslive.com"
+            st.markdown(
+                "**Modes:** "
+                f"[edit]({base}/editor/{article_id}) | "
+                f"[calculate]({base}/calculate/{article_id}) | "
+                f"[table]({base}/table/{article_id}) | "
+                f"[view]({base}/view/{article_id})"
+            )
         if human_readable.get("summary"):
             st.markdown(f"**Summary:** {human_readable.get('summary')}")
 
@@ -385,7 +431,11 @@ if prompt := st.chat_input("Ask me to 'Calculate the values and write them back 
                         if tool_args:
                             st.session_state.review_candidate = tool_args
                             st.session_state.review_result = result
-                            st.session_state.review_table_title = tool_args.get("title") or "Calculation Table"
+                            st.session_state.review_table_title = (
+                                tool_args.get("title")
+                                or result.get("title")
+                                or "Calculation Table"
+                            )
                             refresh_for_review = True
                     if tool_name == "create_calcslive_article_from_script" and result.get("success"):
                         st.session_state.last_created_article = result

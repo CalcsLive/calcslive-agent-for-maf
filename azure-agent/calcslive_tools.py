@@ -236,7 +236,13 @@ def calculate_with_calcslive(
     }
 
 
-def run_calcslive_script(pqs: list, inputs: dict | None = None, outputs: dict | None = None) -> dict:
+def run_calcslive_script(
+    pqs: list,
+    inputs: dict | None = None,
+    outputs: dict | None = None,
+    title: str | None = None,
+    description: str | None = None,
+) -> dict:
     if not pqs:
         return {"success": False, "error": "pqs is required and cannot be empty"}
 
@@ -268,7 +274,12 @@ def run_calcslive_script(pqs: list, inputs: dict | None = None, outputs: dict | 
         }
 
     normalized = _normalize_script_result(data)
-    return {"success": True, **normalized}
+    result = {"success": True, **normalized}
+    if title:
+        result["title"] = title
+    if description:
+        result["description"] = description
+    return result
 
 
 def create_calcslive_article_from_script(

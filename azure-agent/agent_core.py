@@ -540,7 +540,7 @@ class CalcsLiveAgent:
                     "type": "function",
                     "function": {
                             "name": "run_calcslive_script",
-                            "description": "Run a stateless PQ script calculation with category-aware validation, warnings, and human-readable output",
+                            "description": "Run a stateless PQ script calculation with category-aware validation, warnings, and human-readable output. Also propose a title and description for later article creation when appropriate.",
                             "parameters": {
                                 "type": "object",
                                 "properties": {
@@ -555,7 +555,9 @@ class CalcsLiveAgent:
                                     "outputs": {
                                             "type": "object",
                                             "description": "Optional output unit preferences, e.g. {\"P\": {\"unit\": \"kW\"}}"
-                                    }
+                                    },
+                                    "title": {"type": "string", "description": "Optional proposed article title for the reviewed calculation"},
+                                    "description": {"type": "string", "description": "Optional proposed article description for the reviewed calculation"}
                                 },
                                 "required": ["pqs"]
                             }
@@ -717,6 +719,7 @@ Key concepts:
 - Do not mention or require `=CalcsLive(...)` formulas in Excel cells; expression text in the Expression column is enough.
 - Use `discover_calcslive_units` and `resolve_calcslive_unit_alias` proactively when units like rpm, lb, oz, ton, or gallon might be ambiguous.
 - Match MCP behavior: prefer `run_calcslive_script` before `create_calcslive_article_from_script` unless the user explicitly asks to persist immediately.
+- When reviewing a new calculation, propose a concise human-friendly title and description so the create form can be prefilled for the user.
 
 Always explain what you're doing. Show your tool results to the user as they happen if it takes multiple steps.
 """
@@ -754,6 +757,8 @@ Always explain what you're doing. Show your tool results to the user as they hap
                     pqs=func_args.get("pqs", []),
                     inputs=func_args.get("inputs", {}),
                     outputs=func_args.get("outputs", {}),
+                    title=func_args.get("title"),
+                    description=func_args.get("description"),
                 )
             elif func_name == "discover_calcslive_units":
                 return discover_calcslive_units(
