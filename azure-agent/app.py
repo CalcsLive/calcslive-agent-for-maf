@@ -70,7 +70,7 @@ def _excel_bridge_available() -> bool:
     health = _bridge_get("/excel/health")
     return bool(health.get("success"))
 
-APP_ICON_PATH = Path(__file__).resolve().parent.parent / "assets" / "images" / "e3d-logo3.png"
+APP_ICON_PATH = Path(__file__).resolve().parent / "static" / "e3d-logo3.png"
 
 st.set_page_config(
     page_title="CalcsLive Agent",
@@ -127,7 +127,7 @@ if "review_table_title" not in st.session_state:
     st.session_state.review_table_title = "Calculation Table"
 
 with st.sidebar:
-    st.subheader("App Options")
+    st.subheader("Agent Options")
     if excel_bridge_available:
         live_mode = st.checkbox("Auto-update Excel results", value=True, key="live_mode")
         debounce_interval = st.slider("Update debounce (seconds)", 1, 30, 3, key="live_debounce")

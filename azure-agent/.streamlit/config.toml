@@ -1,0 +1,12 @@
+[server]
+# Allow embedding in iframes from other domains
+enableCORS = false
+enableXsrfProtection = false
+
+# Required for container deployments
+headless = true
+runOnSave = false
+
+[browser]
+# Disable "Made with Streamlit" footer for cleaner embedding
+gatherUsageStats = false
