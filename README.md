@@ -1,97 +1,195 @@
 # CalcsLive Agent for Microsoft AI Dev Days Hackathon
 
-**An Azure-orchestrated Agent transforming Excel into a Unit-Aware Engineering Tool**
-
-CalcsLive Agent bridges the gap between Microsoft Excel and professional engineering calculations. Excel is fundamentally "unit-blind"—it doesn't understand the difference between inches, centimeters, or gallons. By orchestrating a local Excel Bridge API and the [CalcsLive](https://calcslive.com/) unit-aware calculation engine via Microsoft's Agent Framework (MAF) and Azure OpenAI, this project acts as a "System Utility" allowing users to execute complex engineering math directly alongside their spreadsheets using natural language.
+**Azure-moderated human + AI workflow for creating reusable unit-aware calculations, with Excel as a flagship bi-directional integration.**
 
 ![Architecture Diagram](docs/architecture.png)
 
-## 🏆 Hackathon Compliance Matrix
+## What This Project Does
 
-This project strictly adheres to the core requirements of the Microsoft AI Dev Days Hackathon (February/March 2026):
+CalcsLive Agent helps users create **live, reusable, unit-aware calculations from natural language**.
 
-| Requirement | Implementation Validation |
-| :--- | :--- |
-| **Azure AI Backend** | Uses `Azure OpenAI` deployments (`grok-3-mini` or `gpt-4o`) via the Azure Python SDK. Alternatively supports MAF Serverless Inference Endpoints. Configuration managed via `AZURE_AI_INFERENCE_ENDPOINT`. |
-| **Agentic Frameworks** | Leverages the Azure AI Projects SDK / OpenAI API for tool-calling orchestration across distinct agent logic (Excel Agent vs CalcsLive Agent). |
-| **Data / API Actions** | The Agent dynamically reads Excel PQ (Physical Quantity) tables locally, calls the remote CalcsLive REST API to run math logic with unit awareness, and mutates the local Excel state with the outputs. |
-| **Microsoft Tooling** | Deep integration with local **Excel 2016 Pro** via COM automation (`pywin32`) to achieve real-time, bidirectional spreadsheet interaction. |
-| **Code Availability** | Hosted in this public GitHub repository. |
-| **BONUS: Local OS Integrations** | We authored a Model Context Protocol (MCP) server for Excel (`excel-mcp`) and registered it with the **Windows On-Device Registry (ODR)**. See the note on Dev Preview limitations below. |
+The core workflow is **AI-Human Co-Authoring**:
 
----
+1. A user describes a calculation in natural language.
+2. Azure AI drafts a CalcsLive-compatible PQ script.
+3. CalcsLive runs a stateless review of the script.
+4. The human user refines the result with project context and domain knowledge.
+5. The approved script is persisted as a reusable CalcsLive article.
 
-## ⚠️ A Note on Microsoft ODR (On-Device Registry) Integration
+That article then becomes a reusable asset that can be used through multiple CalcsLive modes:
 
-As part of the Hackathon's Local-Host OS bonus track, we built an MCP-compliant wrapper (`excel-mcp`) designed to expose Excel's COM automation bridge to any Windows 11 agent via the new ODR sub-system.
+- `edit`
+- `calculate`
+- `table`
+- `view`
 
-We successfully authored and registered the server (`odr mcp add` succeeded). 
-However, invoking it (`odr mcp run`) returned an `AccessStatus=DeniedBySystem` error.
+When Excel is available, the same calculation can also be sent into Excel, used interactively, and read back out again in the reverse direction.
 
-**Why?** The current Developer Preview of ODR restricts custom CLI server invocations unless the OS is placed into `TestMode` (`bcdedit.exe /set TESTSIGNING ON`). Unfortunately, our development machine is hardware-locked by a **Secure Boot Policy** that prevents boot-configuration modifications, blocking us from entering TestMode. Unlocking Secure Boot requires bios-level reconfiguration and BitLocker key recovery that falls outside the safety scope of this hackathon timeline.
+## Why It Matters
 
-**The Pivot:** We successfully documented the ODR limitation and pivoted our execution flow. The MVP architecture uses our fallback route: The Azure Agent directly invokes our local FastAPI Excel Bridge (`http://localhost:8001`) to accomplish the exact same orchestration loop reliably, proving the "System Utility" UX through a Streamlit Web Dashboard without violating local Windows security postures.
+This project is not just “AI generating a formula.”
 
-*See `docs/odr-validation-log-2026-02-27.md` and `docs/odr-runbook.md` for full verification evidence.*
+It demonstrates:
 
----
+- **AI-Human Co-Authoring** instead of AI slop
+- **CalcsLive as reusable unit-aware infrastructure**
+- **Azure AI as the moderator/orchestrator**
+- **Excel as a connected local execution surface**
 
-## 🚀 Getting Started
+The result is a system-level workflow where unit-aware calculations can move between cloud/web and desktop/local contexts.
 
-To run the MVP End-to-End locally:
+## Core Value Proposition
 
-### 1. Prerequisites
-- Windows OS with Microsoft Excel installed (tested on Excel 2016 Pro).
+### Main superpower
+
+Create a live unit-aware calculation in under a minute using natural language, human review, and deterministic CalcsLive execution.
+
+### Excel value proposition
+
+Revitalize and simplify calculations in Excel with **composable unit-aware calculations**.
+
+- Existing and new spreadsheets can be enhanced with unit-aware live calculations.
+- Excel cell references can connect CalcsLiverated PQ tables with the rest of the spreadsheet.
+- Excel-authored calculation tables can be converted back into reusable CalcsLive content.
+
+## Supported Workflows
+
+### 1. Natural language -> review -> create live calculation
+
+This is the main workflow and the strongest differentiator.
+
+- user describes a calculation
+- agent drafts a PQ script
+- CalcsLive reviews it statelessly
+- human refines title, description, units, and logic as needed
+- approved script becomes a reusable live article
+
+### 2. Create -> send to Excel -> reactive spreadsheet use
+
+- reviewed article is sent into Excel through the bridge
+- Excel gets metadata + PQ table structure
+- user edits values/units directly in Excel
+- CalcsLive-backed recalculation updates outputs reactively
+
+### 3. Excel-authored table -> review -> create article
+
+- user prepares a compatible PQ table in Excel
+- bridge reads the table into the app
+- app reviews it as a CalcsLive script
+- user refines it and persists it as a reusable live article
+
+See `deliverables/workflows.md` for the full workflow narrative.
+
+## Architecture Summary
+
+The project uses a unified Streamlit moderator app as the main entrypoint.
+
+- **Azure AI** moderates the workflow
+- **CalcsLive** provides deterministic unit-aware execution and article storage
+- **Excel Bridge** provides local bi-directional spreadsheet integration when available
+- **Excel Desktop** acts as a familiar downstream working surface
+- **MCP work** provides proof of extensibility toward broader tool and agent interoperability
+
+## Hackathon Alignment
+
+### Core requirements
+
+| Requirement | Status | Notes |
+|---|---|---|
+| AI Technology | ✅ | Azure AI-moderated agent workflow + MAF-aligned orchestration + MCP-oriented integration story |
+| Azure Deployment | ✅ | Unified app deployed to Azure Container Apps |
+| GitHub Development | ✅ | Public GitHub repo + VS Code-based development workflow |
+
+### Best-fit categories
+
+Primary:
+- **Build AI Applications & Agents**
+
+Strong secondary:
+- **Best Multi-Agent System**
+- **Best Azure Integration**
+
+## Microsoft Technologies Used
+
+- Azure Container Apps for deployment
+- Azure AI / Microsoft AI platform-backed orchestration
+- Microsoft Agent Framework-aligned moderator architecture
+- Azure MCP / MCP-oriented extensibility direction
+- GitHub + VS Code development workflow
+
+## Running Locally
+
+### Prerequisites
+
+- Windows with Microsoft Excel installed
 - Python 3.9+
-- Azure OpenAI Inference Endpoint and Key.
-- CalcsLive API Key (Optional but recommended for premium unit features).
+- Azure AI inference endpoint + key
+- CalcsLive API key
 
-### 2. Environment Setup
-Clone this repository and set up your `.env` file in `azure-agent/`:
+### Environment
+
+Set env vars in `azure-agent/.env`:
+
 ```env
 AZURE_AI_INFERENCE_ENDPOINT=https://your-endpoint.openai.azure.com
 AZURE_AI_INFERENCE_KEY=your_key_here
 CALCSLIVE_API_KEY=your_calcslive_token
 ```
 
-### 3. Start the Excel Bridge
-Open a sample Excel workbook containing a Physical Quantity (PQ) table (e.g., `ExampleCalc-01.xlsx`).
-```bash
-cd excel-bridge
-pip install -r requirements.txt
-python main.py
-```
-*(Runs on `http://localhost:8001`)*
+### Start local Excel bridge
 
-### 4. Launch the Streamlit System Dashboard
-In a new terminal:
 ```bash
-cd azure-agent
-pip install -r requirements.txt
-python -m streamlit run app.py
+python excel-bridge/main.py
 ```
 
-### 5. Orchestrate!
-The Streamlit UI will open at `http://localhost:8501`. Prompt the agent:
-> *"Please read the current Excel table, calculate the output values through CalcsLive, and write the answers back down to the spreadsheet."* 
+### Start unified app
 
-Watch as the Azure Agent sequentially hits the `get_excel_health`, `read_excel_pq_table`, `calculate_with_calcslive`, and `write_excel_results` tools—updating your live Excel document in seconds!
+```bash
+python -m streamlit run azure-agent/app.py
+```
 
-## ☁️ Cloud-Only Beta (No Excel Setup)
+Or use the developer helper:
 
-If you want testers to try article creation without local Excel/COM setup, deploy the cloud Streamlit app first.
+```powershell
+.\dev.ps1 local
+```
 
-- Guide: `docs/cloud-beta-rollout.md`
-- App entrypoint: `azure-agent/app_cloud.py`
-- Repeatable deployment script: `deploy/deploy-cloud-beta.ps1`
-- App Service quota fallback: `deploy/deploy-cloud-beta-aca.ps1` (Azure Container Apps)
+For local CalcsLive API testing:
 
----
+```powershell
+.\dev.ps1 local -UseLocalCalcsLiveApi
+```
 
-## 📁 Repository Structure
+## Cloud Deployment
 
-*   `azure-agent/`: The core MAF Orchestrator logic (`agent_core.py`) and the Streamlit UX (`app.py`).
-*   `excel-bridge/`: The local FastAPI server providing COM-level access to the active Excel window.
-*   `excel-mcp/`: The experimental Model Context Protocol wrapper built for Windows ODR registration.
-*   `demo/`: Screenshots and videos of the working MVP.
-*   `docs/`: Architecture diagrams and ODR validation logs.
+The unified app is deployable to Azure Container Apps.
+
+- Main app entrypoint: `azure-agent/app.py`
+- ACA deploy script: `deploy/deploy-cloud-beta-aca.ps1`
+- Dev helper: `.\dev.ps1 deploy`
+- Rollout guide: `docs/cloud-beta-rollout.md`
+
+## Repository Structure
+
+- `azure-agent/` — unified app, orchestration logic, shared CalcsLive tools
+- `excel-bridge/` — local Excel COM + REST bridge
+- `excel-mcp/` — MCP wrapper / proof of extensibility
+- `docs/` — architecture and supporting documentation
+- `demo/` — screenshots and test artifacts
+- `deliverables/` — final submission materials and working drafts
+
+## Key Submission Assets
+
+- Architecture narrative: `deliverables/architecture-content.md`
+- Workflow narrative: `deliverables/workflows.md`
+- Submission draft: `deliverables/submission-summary.md`
+- Demo plan: `deliverables/demo-outline.md`
+- Final checklist: `deliverables/final-checklist.md`
+
+## Scope Notes
+
+Current known limits:
+
+- cloud deployment does not automatically connect to a private local Excel bridge
+- full Excel MCP parity is not required for the working demo path
+- broader plugin-style downstream integrations are future work
