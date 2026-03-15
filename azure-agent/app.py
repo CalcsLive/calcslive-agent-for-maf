@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 from agent_core import CalcsLiveAgent, EXCEL_BRIDGE_URL, LAST_TABLE_CONTEXT, load_article_to_excel, read_excel_pq_table
 from calcslive_tools import CALCSLIVE_API_KEY, CALCSLIVE_API_URL
 from app_shared import calc_table_rows, review_summary, review_table_title, tool_arguments_from_messages
@@ -132,27 +133,111 @@ with st.sidebar:
         live_mode = st.checkbox("Auto-update Excel results", value=True, key="live_mode")
         debounce_interval = st.slider("Update debounce (seconds)", 1, 30, 3, key="live_debounce")
     with st.expander("Sample Prompts", expanded=True):
-        st.caption("Copy one of these to get started:")
-        st.text_area(
-            "Prompt 1",
-            value="Please calculate the acceleration for a car to go from 0 to 100 km per hour in 3 seconds and the distance covered.",
-            height=70,
-        )
-        st.text_area(
-            "Prompt 2",
-            value="Calculate the mass of a steel sphere.",
-            height=70,
-        )
-        st.text_area(
-            "Prompt 3",
-            value="Calculate the stress and deflection of simple HSS beam with fixed support at both ends under uniform distributed load.",
-            height=90,
-        )
-        st.text_area(
-            "Prompt 4",
-            value="Calculate the Earth escape velocity.",
-            height=70,
-        )
+        st.caption("Hover over any prompt and click the copy icon, then paste into the chat:")
+
+        sample_prompts = [
+            "Calculate the mass of a steel sphere.",
+            "Calculate the mass of a solid cylinder.",            
+            "Please calculate the acceleration for a car to go from 0 to 100 km per hour in 3 seconds and the distance covered.",
+            "Calculate the stress and deflection of simple HSS beam with fixed support at both ends under uniform distributed load.",
+            "Calculate the Earth escape velocity.",
+        ]
+
+        # Custom CSS and JS for clickable prompt cards with copy button on hover
+        prompt_cards_html = """
+        <style>
+        .prompt-card {
+            position: relative;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 12px 40px 12px 16px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            font-family: 'Source Code Pro', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            white-space: normal;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            width: 100%;
+            box-sizing: border-box;
+            transition: background-color 0.2s, border-color 0.2s;
+        }
+        .prompt-card:hover {
+            background-color: #e9ecef;
+            border-color: #adb5bd;
+        }
+        .prompt-card:active {
+            background-color: #dee2e6;
+        }
+        .copy-btn {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: #ffffff;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 4px 6px;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.2s, background-color 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .prompt-card:hover .copy-btn {
+            opacity: 1;
+        }
+        .copy-btn:hover {
+            background-color: #e9ecef;
+            border-color: #adb5bd;
+        }
+        .copy-btn svg {
+            width: 14px;
+            height: 14px;
+            fill: #6c757d;
+        }
+        .copy-btn:hover svg {
+            fill: #495057;
+        }
+        .copy-btn.copied {
+            background-color: #d4edda;
+            border-color: #28a745;
+        }
+        .copy-btn.copied svg {
+            fill: #28a745;
+        }
+        </style>
+        <script>
+        function copyPrompt(btn, text, event) {
+            event.stopPropagation();
+            navigator.clipboard.writeText(text).then(function() {
+                btn.classList.add('copied');
+                btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>';
+                setTimeout(function() {
+                    btn.classList.remove('copied');
+                    btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>';
+                }, 1500);
+            });
+        }
+        </script>
+        """
+
+        copy_icon = '<svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>'
+        for i, prompt in enumerate(sample_prompts):
+            escaped_prompt = prompt.replace("'", "\\'").replace('"', "&quot;")
+            prompt_cards_html += f'''
+            <div class="prompt-card">
+                <span class="prompt-text">{prompt}</span>
+                <button class="copy-btn" onclick="copyPrompt(this, '{escaped_prompt}', event)" title="Copy to clipboard">{copy_icon}</button>
+            </div>
+            '''
+
+        # Calculate height based on content (approx 70px per prompt + padding)
+        card_height = len(sample_prompts) * 70 + 20
+        components.html(prompt_cards_html, height=card_height, scrolling=False)
     with st.expander("CalcsLive Help", expanded=False):
         st.caption("Use these references when refining units, PQ symbols, formulas, or supported math functions.")
         st.markdown("- [Overall Help](https://calcslive.com/help)")

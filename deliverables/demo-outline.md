@@ -20,7 +20,7 @@ Show a clear, working story that combines:
 
 Say:
 
-"CalcsLive Agent lets a user create a live reusable unit-aware calculation from natural language, with human review to keep quality high. Excel is one powerful downstream integration of that infrastructure."
+"CalcsLive Agent lets a user create a live reusable unit-aware calculation from natural language, with human review & refinement to keep quality high. Excel is one powerful downstream integration of that infrastructure."
 
 Show:
 - unified app home screen
@@ -28,7 +28,7 @@ Show:
 ### 0:15 - 0:35 | Review-first calculation creation
 
 Action:
-- paste a sample prompt
+- paste a sample prompt: please calculate mass of a solid cylinder
 
 Show:
 - reviewed CalcsLive script

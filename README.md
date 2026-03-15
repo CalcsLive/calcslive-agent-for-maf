@@ -1,6 +1,6 @@
 # CalcsLive Agent for Microsoft AI Dev Days Hackathon
 
-**Azure-moderated human + AI workflow for creating reusable unit-aware calculations, with Excel as a flagship bi-directional integration.**
+**Azure-moderated AI + Human workflow for creating reusable unit-aware calculations, with Excel as a flagship bi-directional integration.**
 
 ![Architecture Diagram](docs/architecture.png)
 
@@ -13,7 +13,7 @@ The core workflow is **AI-Human Co-Authoring**:
 1. A user describes a calculation in natural language.
 2. Azure AI drafts a CalcsLive-compatible PQ script.
 3. CalcsLive runs a stateless review of the script.
-4. The human user refines the result with project context and domain knowledge.
+4. The human user refines the result with project context and domain knowledge iteratively.
 5. The approved script is persisted as a reusable CalcsLive article.
 
 That article then becomes a reusable asset that can be used through multiple CalcsLive modes:
@@ -23,7 +23,9 @@ That article then becomes a reusable asset that can be used through multiple Cal
 - `table`
 - `view`
 
-When Excel is available, the same calculation can also be sent into Excel, used interactively, and read back out again in the reverse direction.
+and can be connected to multiple platforms like Excel, CAD, n8n, etc.
+
+As implemented in this project, when Excel is available, the same calculation can also be sent into Excel, used interactively, and read back out again in the reverse direction to allow creating CalcsLive calculation articles from Excel data.
 
 ## Why It Matters
 
@@ -54,7 +56,7 @@ Revitalize and simplify calculations in Excel with **composable unit-aware calcu
 
 ## Supported Workflows
 
-### 1. Natural language -> review -> create live calculation
+### 1. Natural language -> review + refine -> create live calculation
 
 This is the main workflow and the strongest differentiator.
 
@@ -70,6 +72,7 @@ This is the main workflow and the strongest differentiator.
 - Excel gets metadata + PQ table structure
 - user edits values/units directly in Excel
 - CalcsLive-backed recalculation updates outputs reactively
+- Excel cell-referencing allows CalcsLiverated PQ table to get inputs and update outputs in the Excel file.
 
 ### 3. Excel-authored table -> review -> create article
 
