@@ -137,10 +137,15 @@ with st.sidebar:
 
         sample_prompts = [
             "Calculate the mass of a steel sphere.",
-            "Calculate the mass of a solid cylinder.",            
+            "Calculate the mass of a solid cylinder.",  
+            "Please change to use Diameter(/Radius) as input. (Note: prompt after the sample above to test AI-Human interaction)",  
+            "Please change to a topless cylinder with equal thickness. (Note: prompt after the sample above to test AI-Human interaction)",  
             "Please calculate the acceleration for a car to go from 0 to 100 km per hour in 3 seconds and the distance covered.",
             "Calculate the stress and deflection of simple HSS beam with fixed support at both ends under uniform distributed load.",
             "Calculate the Earth escape velocity.",
+            "Calculate the power required for a given torque and shaft speed. (Note: this is a tricky one, and may need iterations)",
+            "Calculate the belt length for an open belt drive.",
+            "Calculate the belt length for a crossed belt drive.",
         ]
 
         # Custom CSS and JS for clickable prompt cards with copy button on hover
@@ -151,7 +156,7 @@ with st.sidebar:
             background-color: #f8f9fa;
             border: 1px solid #dee2e6;
             border-radius: 6px;
-            padding: 12px 40px 12px 16px;
+            padding: 12px 20px 12px 16px;
             margin-bottom: 10px;
             cursor: pointer;
             font-family: 'Source Code Pro', monospace;

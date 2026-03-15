@@ -1,152 +1,187 @@
-# Final Architecture Diagram Content
+# Architecture Diagram Content
 
 Use this as the source text for the final submission architecture diagram.
 
-## Diagram Goal
+## Hackathon Alignment
 
-Show that:
+This diagram must illustrate use of:
+- **Azure AI Foundry** (formerly Azure AI Studio) - Model deployment and inference
+- **Microsoft Agent Framework** - Agent orchestration pattern
+- **Azure MCP** - Tool integration and extensibility
+- **GitHub Copilot** - Development workflow
+- **Azure Services** - Container Apps, AI inference endpoints
 
-- Azure AI moderates the workflow
-- human review improves quality and reduces slop/hallucination
-- CalcsLive is the reusable unit-aware infrastructure layer
-- Excel is one downstream system enhanced by that infrastructure
-- the solution can interoperate across both cloud/web and desktop/local agent contexts
+## Diagram Title
 
-## Recommended Title
+**CalcsLive Agent: Azure AI Foundry-Powered Agent for Unit-Aware Calculations**
 
-**CalcsLive Agent: Azure-moderated Human + AI Workflow for Reusable Unit-Aware Calculations**
+## Layout: Left-to-Right Flow with 5 Sections
 
-## Recommended Layout
+### Section 1 — Development Layer (Left Edge)
 
-Use a left-to-right flow with 4 vertical sections.
+Box with GitHub/VS Code icon:
+- `GitHub + VS Code`
+- subtitle: `GitHub Copilot-assisted development`
 
-### Section 1 — Human + Unified App
+Callout:
+- `Code, test, deploy workflow`
+
+### Section 2 — Human + Agent UI
 
 Box 1:
 - `Human User`
-- small subtitle: `Project context + domain review`
+- subtitle: `Domain knowledge + review`
 
 Box 2:
-- `Unified CalcsLive Agent UI`
-- small subtitle: `Review-first creation + Excel bridge when available`
+- `CalcsLive Agent UI`
+- subtitle: `Streamlit + Agent orchestration`
 
-Callout near these boxes:
-- `AI-Human Co-Authoring improves quality and reduces AI slop`
+Callout:
+- `AI-Human Co-Authoring reduces AI slop`
 
-### Section 2 — Azure AI Moderation Layer
+### Section 3 — Azure AI Layer (Center - Highlight This)
+
+Main container box with Azure logo:
+- `Azure AI Foundry`
+
+Inside as sub-boxes:
+- `Azure AI Inference Endpoint`
+- `Models-as-a-Service (GPT-4 / Grok)`
+- `Agent Orchestration (MAF pattern)`
+
+Below or connected:
+- `Azure MCP Integration`
+- subtitle: `Tool definitions + extensibility`
+
+Arrow labels into Azure layer:
+- `Natural language prompt`
+- `Review feedback`
+
+Arrow labels out:
+- `Drafted calculation`
+- `Refined outputs`
+
+### Section 4 — CalcsLive Platform
 
 Main box:
-- `Azure AI Moderator / Orchestrator`
+- `CalcsLive API`
 
-Inside or below as smaller sub-boxes:
-- `Natural-language calculation design`
-- `Script review orchestration`
-- `Create article orchestration`
-- `Bridge coordination`
-
-Arrow labels from UI to Azure layer:
-- `Prompt`
-- `Review feedback`
-- `Approval`
-
-Arrow labels back to UI:
-- `Reviewed script`
-- `Warnings + outputs`
-- `Created article`
-
-### Section 3 — CalcsLive Infrastructure Layer
-
-Main central box:
-- `CalcsLive Platform`
-
-Inside as smaller stacked items:
-- `Unit-aware engine`
+Inside as stacked items:
+- `Unit-aware calculation engine`
 - `67+ unit categories`
-- `Stateless script review`
-- `Persistent article store`
-- `Web delivery modes`
+- `Stateless script execution`
+- `Article persistence`
 
-Small horizontal mode list beneath:
+Mode list:
 - `edit | calculate | table | view`
 
-Key callout:
-- `CalcsLive article = reusable source-of-truth calculation asset`
+Callout:
+- `CalcsLive article = reusable calculation asset`
 
-### Section 4 — Connected Systems
+### Section 5 — Connected Systems (Right Edge)
 
 Top box:
 - `Excel Bridge`
-- small subtitle: `Local COM + REST bridge`
+- subtitle: `Local REST + COM automation`
 
-Below it:
+Below:
 - `Excel Desktop`
-- small subtitle: `Bi-directional spreadsheet workflow`
+- subtitle: `Bi-directional workflow`
 
-To the side or below as future boxes with dashed outline:
-- `CAD`
-- `n8n`
-- `Other systems`
+Dashed future boxes:
+- `CAD systems`
+- `n8n workflows`
+- `Other MCP clients`
 
-Callout:
-- `CalcsLive acts as the infrastructural atomic unit-awareness carrier`
+### Section 6 — Deployment Layer (Bottom)
 
-## Required Arrows
+Horizontal bar:
+- `Azure Container Apps`
+- subtitle: `Production deployment`
 
-### Main creation workflow
+## Data Flow Arrows
 
-`Human User -> Unified CalcsLive Agent UI -> Azure AI Moderator / Orchestrator -> CalcsLive Platform`
+### Main Creation Flow
+```
+Human User → CalcsLive Agent UI → Azure AI Foundry → CalcsLive API
+```
 
-Return path:
+### Return Flow
+```
+CalcsLive API → Azure AI Foundry → CalcsLive Agent UI → Human User
+```
 
-`CalcsLive Platform -> Azure AI Moderator / Orchestrator -> Unified CalcsLive Agent UI -> Human User`
+### Excel Forward Flow
+```
+CalcsLive API → Azure AI Foundry (orchestrate) → Excel Bridge → Excel Desktop
+```
+Label: `Load calculation to Excel`
 
-### Excel forward workflow
+### Excel Reverse Flow
+```
+Excel Desktop → Excel Bridge → Azure AI Foundry (orchestrate) → CalcsLive API
+```
+Label: `Create article from Excel`
 
-`CalcsLive Platform -> Azure AI Moderator / Orchestrator -> Excel Bridge -> Excel Desktop`
+### MCP Tool Calls (show as dotted lines)
+```
+Azure AI Foundry ←→ CalcsLive MCP Tools
+Azure AI Foundry ←→ Excel MCP Tools
+```
 
-Label:
-- `Send Calc to Excel`
+## Microsoft Technology Callouts
 
-### Excel reverse workflow
+Place these as badges or highlighted labels:
 
-`Excel Desktop -> Excel Bridge -> Azure AI Moderator / Orchestrator -> CalcsLive Platform`
+1. **Azure AI Foundry** - Central orchestration hub
+2. **Azure AI Inference** - Model deployment endpoint
+3. **Microsoft Agent Framework** - Agent pattern implementation
+4. **Azure MCP** - Tool integration layer
+5. **Azure Container Apps** - Production hosting
+6. **GitHub Copilot** - Development acceleration
 
-Label:
-- `Get Calc from Excel`
+## Numbered Workflow Overlay
 
-### Future extensibility workflow
+1. Developer builds agent with GitHub Copilot assistance
+2. Human describes calculation in natural language
+3. Azure AI Foundry drafts CalcsLive-compatible script
+4. CalcsLive executes stateless review with unit validation
+5. Human refines with domain knowledge (AI-Human Co-Authoring)
+6. Approved script persists as reusable CalcsLive article
+7. Article accessible via web modes or sent to Excel
+8. Excel changes trigger reactive recalculation via Azure orchestration
 
-Dashed arrows from `CalcsLive Platform` to:
-- `CAD`
-- `n8n`
-- `Other systems`
+## Visual Emphasis
 
-## Numbered Overlay (optional)
+**Must emphasize (hackathon requirement):**
+1. Azure AI Foundry as the central brain
+2. Microsoft Agent Framework pattern
+3. Azure MCP for tool integration
+4. Azure Container Apps for deployment
+5. GitHub + Copilot for development
 
-1. User describes a calculation goal in natural language
-2. Azure AI generates and reviews a CalcsLive script
-3. Human refines the reviewed script with domain context
-4. Approved script is persisted as a reusable CalcsLive article
-5. Article is used directly on the web or sent into Excel
-6. Excel can also send a compatible calculation table back for review and persistence
+**Secondary emphasis:**
+1. AI-Human Co-Authoring loop
+2. CalcsLive as unit-aware infrastructure
+3. Excel bi-directional integration
+4. Future extensibility (dashed)
+
+## Color Scheme Suggestion
+
+- Azure blue (#0078D4) for all Microsoft/Azure components
+- Green (#107C10) for human/review elements
+- Purple (#5C2D91) for CalcsLive platform
+- Gray for future/dashed elements
 
 ## Short Caption
 
-**Azure AI moderates an AI-Human Co-Authoring workflow that turns natural-language requests into reviewed, reusable, unit-aware CalcsLive calculation assets. Those assets can then power both cloud/web and desktop/local experiences, with Excel shown here as a flagship bi-directional integration.**
+**An Azure AI Foundry-powered agent using Microsoft Agent Framework patterns to orchestrate AI-Human Co-Authoring of unit-aware calculations. CalcsLive provides deterministic execution while Azure MCP enables tool extensibility. Deployed on Azure Container Apps with GitHub Copilot-assisted development.**
 
-## Visual Priorities
+## Architecture Box Sizes (Relative)
 
-If time is tight, prioritize showing:
-
-1. Human review loop
-2. Azure moderation
-3. CalcsLive as infrastructure/source-of-truth
-4. Excel bi-directional integration
-5. future system extensibility as dashed boxes
-
-## What Not To Overcomplicate
-
-- Do not overload with low-level implementation details
-- Do not emphasize ODR limitations in the primary submission diagram
-- Do not make Excel the center of the architecture
-- Do not frame this as only an Excel plugin
+- Azure AI Foundry: LARGEST (central, emphasized)
+- CalcsLive API: Medium-large
+- Human/UI: Medium
+- Excel Bridge/Desktop: Medium
+- GitHub/Development: Small
+- Azure Container Apps: Thin horizontal bar at bottom

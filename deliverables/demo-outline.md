@@ -28,7 +28,9 @@ Show:
 ### 0:15 - 0:35 | Review-first calculation creation
 
 Action:
-- paste a sample prompt: please calculate mass of a solid cylinder
+- paste a sample prompt: 
+  - please calculate mass of a solid cylinder
+  - Please change to a topless cylinder with equal thickness.  
 
 Show:
 - reviewed CalcsLive script

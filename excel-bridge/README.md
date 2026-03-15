@@ -1,137 +1,102 @@
 # CalcsLive Excel Bridge
 
-HTTP bridge for Excel COM automation, enabling unit-aware calculations through CalcsLive.
+The Excel bridge is the local COM + REST layer that allows the unified CalcsLive Agent app to interact with the active Excel workbook.
 
-## Quick Start
+It is the key piece that enables:
+
+- sending reviewed CalcsLive calculations into Excel
+- reading compatible Excel-authored PQ tables back into the agent
+- reactive recalculation after spreadsheet edits
+
+## What It Enables
+
+### Forward flow
+
+`CalcsLive article -> Excel`
+
+- load article metadata into Excel
+- write PQ table structure
+- support interactive spreadsheet editing
+
+### Reverse flow
+
+`Excel PQ table -> reviewed CalcsLive script`
+
+- read a compatible Excel-authored PQ table
+- convert it into `pqs`, `inputs`, and `outputs`
+- send it back into the unified app for review and persistence
+
+## Run Locally
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the server
 python main.py
 ```
 
-Server runs at `http://localhost:8001`
+Bridge URL:
 
-## Expected Excel Structure
-
-The bridge auto-detects the PQ table position from the ArticleID cell:
-
-```
-Row 7:  | ArticleID | 3MLCVKCU3-2K8 |           |       |        |
-Row 8:  | Description | Symbol | Expression | Value | Unit |
-Row 9:  | Diameter    | D      |            | 2     | in   |
-Row 10: | Height      | h      |            | 3     | cm   |
-Row 11: | Volume      | V      | pi*D^2/4*h |       | L    |
-Row 12: | Density     | rho    |            | 1000  | kg/m^3 |
-Row 13: | Mass        | m      | rho * V    |       | lbm  |
+```text
+http://localhost:8001
 ```
 
-**Key points:**
-- "ArticleID" label identifies the calculation
-- Headers are 1 row below ArticleID
-- Data starts 2 rows below ArticleID
-- Inputs: PQs without expressions (user provides values)
-- Outputs: PQs with expressions (calculated by CalcsLive)
+## Expected Excel Table Structure
 
-## Auto-Detection Endpoints (Recommended)
+The bridge looks for semantic columns such as:
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/excel/find-article-id` | GET | Find ArticleID cell and value |
-| `/excel/find-pq-table` | GET | Auto-detect and read full PQ table |
-| `/excel/pq-for-calcslive` | GET | Get PQ data formatted for CalcsLive API |
-| `/excel/write-pq-results` | POST | Write results by symbol name |
+- `Description`
+- `Symbol`
+- `Expression`
+- `Value`
+- `Unit`
 
-## Manual Endpoints
+Optional:
+- left-side row number column (`#`)
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/` | GET | Health check |
-| `/excel/health` | GET | Excel connection status |
-| `/excel/read-range` | POST | Read values from Excel range |
-| `/excel/write-cell` | POST | Write value to single cell |
-| `/excel/read-pq-table` | POST | Read PQ table (explicit rows) |
-| `/excel/write-pq-values` | POST | Write values (explicit rows) |
+### Row rules
 
-## API Examples
+- Input row:
+  - `Expression` blank
+  - `Value` and `Unit` populated
+- Output row:
+  - `Expression` populated
+  - `Unit` populated
+  - `Value` optional or pre-existing
 
-### Find ArticleID
+The bridge can now auto-detect compatible PQ tables even when no `ArticleID` is present.
 
-```bash
-curl http://localhost:8001/excel/find-article-id
-```
+## Main Endpoints
 
-Response:
-```json
-{
-  "success": true,
-  "articleId": "3MLCVKCU3-2K8",
-  "labelCell": "B7",
-  "valueCell": "C7",
-  "suggestedHeaderRow": 8,
-  "suggestedDataStartRow": 9
-}
-```
+### Health and bridge status
 
-### Get PQ Data for CalcsLive
+- `GET /excel/health`
 
-```bash
-curl "http://localhost:8001/excel/pq-for-calcslive"
-```
+### Reading / detection
 
-Response:
-```json
-{
-  "success": true,
-  "articleId": "3MLCVKCU3-2K8",
-  "inputs": {
-    "D": {"value": 2, "unit": "in"},
-    "h": {"value": 3, "unit": "cm"},
-    "rho": {"value": 1000, "unit": "kg/m^3"}
-  },
-  "outputs": {
-    "V": {"unit": "L"},
-    "m": {"unit": "lbm"}
-  },
-  "pqs": [...],
-  "rowMapping": {"D": 9, "h": 10, "V": 11, "rho": 12, "m": 13},
-  "valueCol": 5
-}
-```
+- `GET /excel/find-article-id`
+- `GET /excel/find-pq-table`
+- `GET /excel/pq-for-calcslive`
+- `POST /excel/read-pq-table`
 
-### Write Calculation Results
+### Writing / setup
 
-```bash
-curl -X POST http://localhost:8001/excel/write-pq-results \
-  -H "Content-Type: application/json" \
-  -d '{"results": {"V": 0.0965, "m": 212.75}}'
-```
+- `POST /excel/setup-from-article`
+- `POST /excel/write-pq-results`
+- `POST /excel/write-pq-values`
 
-Response:
-```json
-{
-  "success": true,
-  "articleId": "3MLCVKCU3-2K8",
-  "valuesWritten": 2,
-  "details": [
-    {"sym": "V", "row": 11, "cell": "E11", "value": 0.0965},
-    {"sym": "m", "row": 13, "cell": "E13", "value": 212.75}
-  ]
-}
-```
+### Reactive live mode
 
-## Integration with CalcsLive Agent
+- `POST /excel/live-mode/start`
+- `POST /excel/live-mode/stop`
+- `GET /excel/live-mode/status`
 
-The agent flow:
-1. `GET /excel/pq-for-calcslive` - Read inputs and PQ structure
-2. Call CalcsLive MCP `calcslive_run_script` or `calcslive_calculate` with the PQs
-3. `POST /excel/write-pq-results` - Write results back by symbol name
+## Unified App Relationship
 
-## Testing
+The unified app (`azure-agent/app.py`) checks this bridge at runtime.
 
-```bash
-# Open Excel with a PQ table spreadsheet first
-python test_excel_api.py
-```
+- if the bridge is reachable, Excel-specific UI appears
+- if not, the app continues in cloud/web calculation mode only
+
+## Notes
+
+- Requires desktop Excel on Windows
+- Uses COM automation via `pywin32`
+- Intended as the flagship local downstream integration for CalcsLive calculation articles

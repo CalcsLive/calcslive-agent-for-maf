@@ -1,229 +1,144 @@
-# Cloud Beta Rollout (Minimum Friction)
+# Unified App Deployment Guide
 
-This guide helps you deploy the cloud-hosted parts first so testers can try article creation without local Excel setup.
+This guide covers the current deployment and run paths for the **unified** CalcsLive Agent app.
 
-## 1) What runs locally vs in Azure
+## Current Architecture
 
-- Local (your machine):
-  - Source code edits in VS Code
-  - Azure CLI + PowerShell script execution
-  - Secret environment variables used by deploy script
-- Azure cloud:
-  - App Service plan + Web App
-  - Streamlit cloud UI (`app_cloud.py`)
-  - Runtime environment variables (App Settings)
-- Not included in this cloud beta:
-  - Excel bridge (`excel-bridge`) and COM watcher
-  - Local workbook reactive loop
+There is now one main Streamlit app entrypoint:
 
-## 2) Files added for deployment
+- `azure-agent/app.py`
 
-- `azure-agent/app_cloud.py`
-  - Cloud-only Streamlit UI for creating CalcsLive articles from PQ JSON.
-- `deploy/config.dev.json`
-  - Non-secret deployment configuration (resource names, region, startup command).
-- `deploy/deploy-cloud-beta.ps1`
-  - Repeatable script that provisions Azure resources, sets app settings, packages code, and deploys.
+Behavior depends on whether the Excel bridge is reachable:
 
-## 3) One-time prerequisites
+- **Cloud/web mode**: calculation creation, review, and persistence only
+- **Local + Excel mode**: same capabilities plus bi-directional Excel integration
 
-1. Install Azure CLI and sign in:
+`azure-agent/app_cloud.py` remains only as a thin compatibility wrapper for older deploy references.
+
+## Option 1 - Cloud Deployment (Azure Container Apps)
+
+Recommended cloud path:
 
 ```powershell
-az login
+.\dev.ps1 deploy
 ```
 
-2. Confirm the target subscription exists for your account:
+This uses:
+
+- `deploy/deploy-cloud-beta-aca.ps1`
+- `deploy/config.aca.dev.json`
+- `azure-agent/Dockerfile`
+
+The container now launches the unified app directly:
+
+- `streamlit run app.py`
+
+### Secrets
+
+Preferred hackathon path:
+
+- put secrets in `azure-agent/.env`
+- deploy script auto-loads them
+
+Typical variables:
+
+```env
+AZURE_AI_INFERENCE_ENDPOINT=https://your-endpoint.openai.azure.com
+AZURE_AI_INFERENCE_KEY=your_key_here
+AZURE_AI_INFERENCE_MODEL=gpt-4.1-mini
+CALCSLIVE_API_KEY=your_calcslive_token
+```
+
+### Notes
+
+- Cloud deployment does **not** automatically connect to a private local Excel bridge
+- The deployed app works as a cloud/web calculation creation and persistence interface
+
+## Option 2 - Local Run with Excel Desktop
+
+This is the full local demo path.
+
+### Start local Excel bridge
 
 ```powershell
-az account list --output table
+.\dev.ps1 bridge-start
 ```
 
-3. Edit `deploy/config.dev.json`:
-   - Set `appName` to a globally unique name (e.g., `calcslive-beta-yourname-01`).
-   - Keep `projectPath` as `azure-agent`.
-
-## 4) Set local secrets for deploy
-
-Set required secret in your current PowerShell session:
+or
 
 ```powershell
-$env:CALCSLIVE_API_KEY = "<your-calcslive-api-key>"
-$env:CALCSLIVE_API_KEY = "mcp_4f76b38c1f4e7a8518f0de964dd9f5e4847898ba19be392ddfd4fb68bf7b702a"
+python excel-bridge/main.py
 ```
 
-Optional (only if you want NL/LLM features in cloud app later):
+### Start unified app with Excel support
 
 ```powershell
-$env:AZURE_AI_INFERENCE_ENDPOINT = "<your-endpoint>"
-$env:AZURE_AI_INFERENCE_KEY = "<your-key>"
-$env:AZURE_AI_INFERENCE_MODEL = "gpt-4.1-mini"
+.\dev.ps1 local
 ```
 
-Convenience option for hackathon:
-- Put secrets in local `.env` (repo root) or `azure-agent/.env`.
-- Deploy scripts automatically load those files if present.
-- If `CALCSLIVE_API_KEY` is still missing, scripts prompt interactively.
-
-## 5) Run deployment script
-
-From repo root:
+### Local CalcsLive API testing (optional)
 
 ```powershell
-pwsh .\deploy\deploy-cloud-beta.ps1
+.\dev.ps1 local -UseLocalCalcsLiveApi
 ```
 
-If App Service `B1` quota is blocked, use Azure Container Apps instead:
-
-```powershell
-pwsh .\deploy\deploy-cloud-beta-aca.ps1
-```
-
-What this script does:
-
-1. Sets Azure subscription from config.
-2. Creates resource group if missing.
-3. Creates App Service plan if missing.
-4. Creates Web App if missing.
-5. Applies startup command for Streamlit.
-6. Writes app settings into Azure (including secrets from your local env).
-7. Packages `azure-agent` code, excluding `.env`, `.pyc`, caches.
-8. Zip deploys package to Web App.
-9. Restarts app and prints final URL.
-
-## 6) Verify deployment
-
-Open the URL printed by script, or check in portal:
+This points the app to:
 
 ```text
-https://<appName>.azurewebsites.net 
-// eg: 
-https://calcslive-beta-26009-01.azurewebsites.net
+http://localhost:3000/api/v1
 ```
 
-In app:
+### What appears in the UI when Excel bridge is available
 
-1. Keep default PQ JSON.
-2. Click **Create CalcsLive Article**.
-3. Confirm returned article URL and ID.
+- `Bridge to/from Excel`
+- Excel auto-update options
+- send/retrieve Excel calculation actions
 
-## 7) Re-deploy after changes
+## Option 3 - Local Run without Excel
 
-You only need:
+To run the unified app as a cloud-style local test without auto-starting the bridge:
 
 ```powershell
-pwsh .\deploy\deploy-cloud-beta.ps1
+.\dev.ps1 cloud
 ```
 
-For Container Apps path:
+This still launches `azure-agent/app.py`, but Excel-only UI remains hidden unless the bridge is reachable.
+
+## Developer Commands
+
+Useful commands:
 
 ```powershell
-pwsh .\deploy\deploy-cloud-beta-aca.ps1
+.\dev.ps1 help
+.\dev.ps1 status
+.\dev.ps1 local
+.\dev.ps1 cloud
+.\dev.ps1 bridge-start
+.\dev.ps1 bridge-stop
+.\dev.ps1 deploy
 ```
 
-No need to retype resource create commands.
+## Troubleshooting Notes
 
-## 8) Useful operations
+### Azure CLI warnings during deploy
 
-Tail logs:
+Deployment scripts have been hardened to tolerate Azure CLI warning output while still failing on real nonzero exit codes.
+
+### Container Apps extension behavior
+
+The ACA deploy script now isolates the Azure CLI extension directory and handles preview-extension warnings more gracefully.
+
+### Excel UI not appearing in the app
+
+The unified app only shows Excel sections when the Excel bridge is reachable.
+
+Check:
 
 ```powershell
-az webapp log config --name <appName> --resource-group <rg> --application-logging filesystem --level information
-az webapp log tail --name <appName> --resource-group <rg>
+.\dev.ps1 bridge-start
+.\dev.ps1 status
 ```
 
-Update settings only (no code deploy):
+### Browser cache / favicon mismatch
 
-```powershell
-pwsh .\deploy\deploy-cloud-beta.ps1 -SkipCodeDeploy
-```
-
-## 9) Beta rollout recommendation
-
-1. Canary with 2-3 trusted users.
-2. Private beta with 10-20 users.
-3. Collect:
-   - article create success rate
-   - median + p95 latency
-   - top failure reasons
-4. Keep Excel workflow in separate "local advanced mode" during hackathon.
-
-## 10) Troubleshooting (known)
-
-### A) `Operation cannot be completed without additional quota` (Basic VMs)
-
-Cause:
-- App Service Linux `B1` needs Basic compute quota in that region.
-- Some subscriptions/free tiers have `Current Limit (Basic VMs): 0`.
-
-What to do:
-1. Request quota increase for Basic/App Service compute in your subscription + region.
-2. Or use another subscription/region with available quota.
-3. Or switch to a different Azure hosting model (Azure Container Apps consumption).
-
-Important:
-- This error is **hosting compute quota**, not LLM token quota.
-
-### E) Azure Container Apps fallback (recommended when B1 quota is zero)
-
-Files:
-- `deploy/config.aca.dev.json`
-- `deploy/deploy-cloud-beta-aca.ps1`
-
-Steps:
-1. Edit `deploy/config.aca.dev.json` and set a unique `appName`.
-2. Set local secret env var:
-
-```powershell
-$env:CALCSLIVE_API_KEY = "<your-calcslive-api-key>"
-```
-
-3. Deploy:
-
-```powershell
-pwsh .\deploy\deploy-cloud-beta-aca.ps1
-```
-
-Notes:
-- This script deploys from `azure-agent` source path.
-- `azure-agent/Dockerfile` is included for deterministic startup.
-- Container Apps often works where App Service Basic quota is unavailable.
-
-### F) `az containerapp env create` fails
-
-Common causes:
-- Azure resource providers not registered (`Microsoft.App`, `Microsoft.OperationalInsights`, etc.)
-- Region capacity or policy constraints
-
-What to do:
-1. Use the updated script (it auto-registers required providers).
-2. If it still fails, run the failing command with debug to see exact reason:
-
-```powershell
-az containerapp env create --name <env-name> --resource-group <rg> --location <region> --debug
-```
-
-3. Try another region in `deploy/config.aca.dev.json` (for example `eastus2`, `centralus`, `westus2`).
-
-### B) `'3.11' is not recognized as a command`
-
-Cause:
-- PowerShell can mis-handle `PYTHON|3.11` when not quoted correctly.
-
-Status:
-- `deploy/deploy-cloud-beta.ps1` now quotes runtime arguments to avoid this.
-
-### C) App/Web resource not found after a failed plan create
-
-Cause:
-- Earlier script version continued after CLI failures.
-
-Status:
-- `deploy/deploy-cloud-beta.ps1` now fails fast on Azure CLI errors.
-
-### D) Security note for logs
-
-If you accidentally pasted API keys in logs/issues:
-1. Rotate the exposed key immediately in CalcsLive.
-2. Update local env with the new key.
-3. Redeploy app settings with `-SkipCodeDeploy`.
+If the old title/icon persists after redeploy, use a private/incognito window or hard refresh.
