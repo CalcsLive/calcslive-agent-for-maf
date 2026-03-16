@@ -8,6 +8,14 @@
 
 CalcsLive Agent helps users create **live, reusable, unit-aware calculations from natural language**.
 
+**1) Natural Language → CalcsLive Calculation**
+
+![Prompt to CalcsLive](deliverables/prompt-to-calcslive-calc.png)
+
+**2) CalcsLive ↔ Excel 2-Way Bridge**
+
+![CalcsLive to Excel Bridge](deliverables/calcslive-to-excel-2-way-bridge.png)
+
 The core workflow is **AI-Human Co-Authoring**:
 
 1. A user describes a calculation in natural language.
