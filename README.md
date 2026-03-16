@@ -2,7 +2,7 @@
 
 **Azure-moderated AI + Human workflow for creating reusable unit-aware calculations, with Excel as a flagship bi-directional integration.**
 
-![Architecture Diagram](docs/architecture.png)
+![Architecture Diagram](deliverables/architecture.png)
 
 ## What This Project Does
 
@@ -26,6 +26,24 @@ That article then becomes a reusable asset that can be used through multiple Cal
 and can be connected to multiple platforms like Excel, CAD, n8n, etc.
 
 As implemented in this project, when Excel is available, the same calculation can also be sent into Excel, used interactively, and read back out again in the reverse direction to allow creating CalcsLive calculation articles from Excel data.
+
+The deployed prototype is also integrated into `calcslive.com/agent`, demonstrating a practical user-facing entrypoint into the CalcsLive platform experience.
+
+## Entry Points
+
+The project currently supports three practical entry points:
+
+1. **Local unified app**
+   - `http://localhost:8501`
+   - best for full local workflows including Excel bridge features
+
+2. **Azure deployment**
+   - `https://ca-calcslive-beta-26009-01.greensea-202942dd.eastus.azurecontainerapps.io/`
+   - hosted cloud/web version of the unified app
+
+3. **User-friendly CalcsLive entrypoint**
+   - `https://www.calcslive.com/agent`
+   - embedded entrypoint (iframe of the Azure deployment) inside the CalcsLive website
 
 ## Why It Matters
 
@@ -55,6 +73,7 @@ Revitalize and simplify calculations in Excel with **composable unit-aware calcu
 - Excel-authored calculation tables can be converted back into reusable CalcsLive content.
 
 ## Supported Workflows
+![Supported Workflows](deliverables/workflows.png)
 
 ### 1. Natural language -> review + refine -> create live calculation
 
@@ -92,6 +111,8 @@ The project uses a unified Streamlit moderator app as the main entrypoint.
 - **Excel Bridge** provides local bi-directional spreadsheet integration when available
 - **Excel Desktop** acts as a familiar downstream working surface
 - **MCP work** provides proof of extensibility toward broader tool and agent interoperability
+
+The project includes partial MCP proof through the Excel MCP wrapper and ODR exploration. Due to current ODR/platform constraints in the local route, the working submission path uses the direct REST bridge for reliability while keeping the MCP-oriented extensibility story intact.
 
 ## Hackathon Alignment
 
@@ -178,16 +199,20 @@ The unified app is deployable to Azure Container Apps.
 - `excel-bridge/` — local Excel COM + REST bridge
 - `excel-mcp/` — MCP wrapper / proof of extensibility
 - `docs/` — architecture and supporting documentation
-- `demo/` — screenshots and test artifacts
+- `deliverables/samples/` — screenshots, sample runs, and Excel template artifacts
 - `deliverables/` — final submission materials and working drafts
 
 ## Key Submission Assets
 
 - Architecture narrative: `deliverables/architecture-content.md`
+- Architecture visual: `deliverables/architecture.png`
 - Workflow narrative: `deliverables/workflows.md`
+- Workflow visual: `deliverables/workflows.png`
 - Submission draft: `deliverables/submission-summary.md`
 - Demo plan: `deliverables/demo-outline.md`
 - Final checklist: `deliverables/final-checklist.md`
+- Slides deck: `deliverables/CalcsLive Agent Slides.pdf`
+- Sample interaction runs and Excel templates: `deliverables/samples/`
 
 ## Scope Notes
 

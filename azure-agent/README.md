@@ -27,6 +27,20 @@ Core workflow:
 - `app_shared.py` — shared UI helpers for review/presentation
 - `agent.py` — CLI-oriented agent entrypoint and legacy/testing support
 
+## MCP Alignment
+
+The CalcsLive API integration in the unified app is **MCP-aligned**.
+
+- The same capabilities are exposed as tool-style operations inside the agent workflow.
+- In the final working submission path, those capabilities are implemented directly in Python through shared API wrappers for reliability and simplicity.
+- This is a pragmatic adaptation of the same tool-oriented design ideas that would also fit MCP-based execution.
+
+The project also includes partial MCP proof elsewhere in the repo:
+
+- `excel-mcp/` demonstrates MCP-oriented extensibility for Excel bridge operations
+- ODR / Windows registration work was explored as part of the architecture
+- the final live demo uses the direct REST bridge route where it is the most reliable option under current platform constraints
+
 ## Local Run
 
 ### Prerequisites

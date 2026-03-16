@@ -14,6 +14,8 @@ An Azure-orchestrated agent workflow that enables humans and AI to co-author liv
 
 The result is not trapped in a chat session or a single workbook. It becomes a reusable CalcsLive article with its own URL, accessible across multiple modes (`edit`, `calculate`, `table`, `view`) and connectable to downstream systems like Excel, CAD, and workflow automation tools.
 
+The deployed prototype is already integrated into `calcslive.com/agent` as a user-facing entrypoint, showing how this workflow can be embedded directly into the CalcsLive platform experience.
+
 ## Problem
 
 AI can generate calculations quickly, but:
@@ -131,6 +133,8 @@ The project uses a unified Streamlit moderator app as the main entrypoint.
 - **CalcsLive** provides deterministic unit-aware execution and article storage
 - **Excel Bridge** provides local bi-directional spreadsheet integration when available
 - **Future systems** (CAD, n8n, etc.) can connect through the same CalcsLive infrastructure
+
+The project also includes partial MCP proof through the Excel MCP wrapper and ODR exploration. Due to current platform constraints in the local ODR route, the live submission path uses the direct REST bridge for reliability while preserving the MCP-oriented extensibility story.
 
 The architecture demonstrates interoperability between cloud/web agents and local/desktop execution surfaces.
 
