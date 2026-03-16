@@ -2,6 +2,9 @@
 
 **Azure-moderated AI + Human workflow for creating reusable unit-aware calculations, with Excel as a flagship bi-directional integration.**
 
+[![Demo Video](https://img.youtube.com/vi/5zWMoftyhRE/maxresdefault.jpg)](https://www.youtube.com/watch?v=5zWMoftyhRE)
+*▶ Watch the demo: CalcsLive Agent - AI-Human Co-Authoring Live Unit Aware Calculations*
+
 ![Architecture Diagram](deliverables/architecture.png)
 
 ## What This Project Does
